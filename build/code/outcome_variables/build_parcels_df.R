@@ -34,7 +34,7 @@ rm(list = ls())
 install.packages("sf", source = TRUE)
 library(sf)
 
-neededPackages = c("plyr", "dplyr", "tidyr", "readxl","foreign", "data.table", "readstata13", "here",
+neededPackages = c("data.table","plyr", "dplyr", "tidyr", "readxl","foreign", "data.table", "readstata13", "here",
                    "rgdal", "raster", "velox","sp", "lwgeom", "rnaturalearth", 
                    "rlist", "parallel", "foreach", "iterators", "doParallel" )
 
@@ -91,7 +91,7 @@ rm(mills)
 
 #the parcel size is defined here, in meters. 
 PS <- 10000
-
+#PS <- 40000
 # that is the mask of influence area of all mills from IBS over the country. 
 #(note the buffer size is note related to the choice of the parcel size. 
 # The +PS adds a buffer for the expand = *FALSE* argument: it's decided to make the parcels go *beyond* the 40 kms through the aggregation. 
@@ -127,9 +127,11 @@ total_ca40_sp <- as(total_ca40, "Spatial")
 
 ### 1. build the function that will be called in the foreach loop: 
 
+years <- c(1:18)
+
 annual_aggregate <- function(t, threshold){
   
-  ## Define which process we are in: 
+  ## Define which process (year and threshold) we are in: 
   processname <- paste0("./annual_maps/defo_",threshold,"th_", years[t],".tif")
   
   #create unique filepath for temp directory
@@ -138,40 +140,44 @@ annual_aggregate <- function(t, threshold){
   rasterOptions(tmpdir=file.path(paste0(processname,"_Tmp")))
   
   
-  ## read in the indonesia wide raster of deforestation of year t, threshold th, computed in prepare_deforestation_maps.R 
+  ## Mask operation in order to keep only data in the area of interest
+  
+  # read in the indonesia wide raster of deforestation of year t, threshold th, computed in prepare_deforestation_maps.R 
   annual_defo <- raster(processname)
   
-  
-  ## mask with the mill influence polygon. 
+  # mask with the mill influence polygon. 
   mask(annual_defo, total_ca40_sp, 
-       filename = paste0("./annual_maps/defo_",threshold,"th_",years[t],"_masked.tif"),
+       filename = paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif"),
        overwrite = TRUE)
   
   rm(annual_defo)
   
-  ## read in the masked raster 
-  maskedrastername <- paste0("./annual_maps/defo_",threshold,"th_",years[t],"_masked.tif")
+  ## Aggregation operation
+  
+  # read in the masked raster 
+  maskedrastername <- paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif")
   annual_defo_masked <- raster(maskedrastername)
   
-  ## aggregate it from the 30m cells to PSm cells with mean function. 
+  # aggregate it from the 30m cells to PSm cells with mean function. 
   raster::aggregate(annual_defo_masked, fact = c(PS/res(annual_defo_masked)[1], PS/res(annual_defo_masked)[2]), 
                     expand = FALSE, 
                     fun = mean,
-                    filename = paste0("./annual_parcels/parcels_", threshold, "th_", t, ".tif"),
+                    filename = paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"),
                     overwrite = TRUE)
+  
   
   ## Deal with memory and stockage issues: 
   rm(annual_defo_masked)
-  file.remove(paste0("./annual_maps/defo_",threshold,"th_",years[t],"_masked.tif"))
+  file.remove(paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif"))
+  #removes entire temp directory without affecting other running processes (but there should be no temp file now)
+  unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
   
-  #removes entire temp directory without affecting other running processes
-  file.remove(file.path(paste0(processname,"_Tmp")))
   
-  ## read it in to return
-  parcelsname <- paste0("./annual_parcels/parcels_", threshold, "th_", t, ".tif")
-  parcels <- raster(parcelsname)
-  return(parcels)
+  ## return the path to this parcels file 
+  return(paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"))
+  
 }
+
 
 ### 2. build the parallel-looping function
 aggregate_parallel <- function(detected_cores, th){
@@ -181,7 +187,8 @@ aggregate_parallel <- function(detected_cores, th){
   # the loop has arguments to define how the results of the workers should be combined, and to give "workers" (CPUs) 
   # the objects and packages they need to run the function. 
   foreach(t = 1:length(years), 
-          .combine = raster::stack,
+          # .combine = raster::stack, combine the outputs as a mere character list (by default)
+          .multicombine = TRUE,
           .export = c("annual_aggregate", "years", "PS", "total_ca40_sp"), 
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
@@ -190,16 +197,77 @@ aggregate_parallel <- function(detected_cores, th){
 
 
 ### 3. run it for each forest definition (threshold 25, 50 or 75). 
-years <- c(1:18)
+
 th <- 25
 while(th < 100){
   # compute the RasterBrick object of 18 annual layers for this threshold
-  brick(aggregate_parallel(detected_cores = detectCores(), th = th), 
-        filename = paste0("./bricked_parcels/parcels_", th, "th.tif"), 
+  tic()
+  #read in the 18 layers and brick them
+  parcels_brick <- brick(aggregate_parallel(detected_cores = detectCores(), th = th))
+  
+  #write the brick
+  writeRaster(parcels_brick, 
+        filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",th,"th.tif"), 
         overwrite = TRUE)
+  toc()
+  
+  #remove the brick object from memory
+  rm(parcels_brick)
+
   th <- th + 25
 }
 
+##############################################################################################
+
+
+
+##############################################################################################
+##### Convert to a data frame. #####
+
+th <- 25
+while(th < 100){
+  
+  # read the brick for forest definition th
+  parcels_brick <- brick(paste0("./bricked_parcels/parcels_",PS/1000,"km_",th,"th.tif"))
+  
+  # turn it to a data frame
+  df_wide <- raster::as.data.frame(parcels_brick, na.rm = TRUE, xy = TRUE, centroids = TRUE)
+  
+  # reshape to long format
+  df_wide$id <- c(1:nrow(df_wide))
+  
+  varying_vars <- paste0("parcels_",th,"th.", seq(from = 1, to = 18))
+  
+  df <- reshape(df_wide, 
+                varying = varying_vars, 
+                v.names = "defo_pct", 
+                timevar = "year",
+                #idvar = c("x", "y", "id"),
+                ids = "id",
+                direction = "long",
+                sep = "."
+                )
+  
+  rm(varying_vars)
+  
+  df <- setorder(df, id, year)
+  
+  saveRDS(df, file = paste0("./panel_parcels_",PS/1000,"km_",th,"th.Rdata"))
+}
+
+
+#df <- pivot_longer(df_wide, 
+ #                  cols = -id, 
+  #                 names_to = "year",
+   #                names_prefix = paste0("parcels_",th,"th."),
+    #               values_to = "defo_pct",
+#) 
+
+
+
+
+
+####################################################################################################"
 ####################################################################################################"
 #####                         TEST                   #######
 
@@ -259,21 +327,23 @@ annual_aggregate <- function(t, threshold){
   
   
   #removes entire temp directory without affecting other running processes
-  file.remove(file.path(paste0(processname,"_Tmp")))
+  unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
   
-  parcelsname <- paste0("./test/parcels_", threshold, "th_", t, ".tif")
-  parcels <- raster(parcelsname)
-  return(parcels)
+  
+  return(paste0("./test/parcels_", threshold, "th_", t, ".tif"))
 }
 
 ### 2. build the parallel-looping function
-aggregate_parallel <- function(cores, th){
+aggregate_parallel <- function(detected_cores, th){
   
-  registerDoParallel(cores = c) 
+  registerDoParallel(cores = detected_cores) 
   
   # the loop has arguments to define how the results of the workers should be combined, and to give "workers" (CPUs) 
   # the objects and packages they need to run the function. 
-  foreach(t = 10:11, .combine = raster::stack,
+  foreach(t = 10:11, 
+          #.combine = ,
+          #.combine = list.files,
+          .multicombine = F,
           .export = c("annual_aggregate", "years", "PS", "total_ca40_sp"), 
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
@@ -283,15 +353,33 @@ length(years)
 
 
 ### 3. run it for each forest definition (threshold 25, 50 or 75). 
+tic()
+aggregate_parallel(detected_cores = detectCores() - 2, th = th)
+toc()
+
 th <- 25
 while(th < 100){
   # compute the RasterStack object of 18 annual layers for this threshold
-  brick(aggregate_parallel(c = detectCores() - 1, th = th), 
-        filename = paste0("./test/bricked_parcels/parcels_", th, "th.tif"), 
-        overwrite = TRUE)
+  tic()
+  #read in the 18 layers and brick them
+  parcels_brick <- brick(aggregate_parallel(detected_cores = detectCores(), th = th))
+  
+  #write the brick
+  writeRaster(parcels_brick, 
+              filename = paste0("./test/bricked_parcels/parcels_", th, "th.tif"), 
+              overwrite = TRUE)
+  toc()
   th <- th + 25
 }
 showTmpFiles()
+li <- 
+s <- brick(list("./test/parcels_50th_10.tif", "./test/parcels_50th_11.tif"))
+
+writeRaster(s, filename = paste0("./test/bricked_parcels/parcels_", th, "th.tif"),
+            overwrite = TRUE) 
+d <- brick(paste0("./test/bricked_parcels/parcels_", th, "th.tif"))
+writeRaster(d, filename = paste0("./test/bricked_parcels/parcels_", th, "th_bricked.tif"),
+            overwrite = TRUE)
 
 
 ### Convert to a data frame.
@@ -307,6 +395,8 @@ df <- pivot_longer(df_wide,
                    ) 
 head(df)
 str(df)
+### ATTENTION? ICI CE N'EST PAS UN PB, MAIS DANS LE VRAI CAS IL Y AURA ENCORE TOUTES LES CASES DANS LE MASK (NA DONC)
+### ET ON NE VEUT PAS LES GARDER QUAND ON PASSE AU DATAFRAME.
 
 ############################################ END OF TEST ############################################################
 

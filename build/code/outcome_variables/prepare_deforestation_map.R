@@ -19,6 +19,8 @@
 ############################################################################################################
   # DEFINE AREA OF INTEREST (AOI)
   # DOWNLOAD APPROPRIATE HANSEN DEFORESTATION DATA
+  # THRESHOLD GFC DATA AT 25%, 50% and 75% PIXEL COVER
+  # ALIGN PLANTATION MAPS ON FOREST LOSS MAPS
   # COMPUTE FOREST LOSS IMPUTABLE TO PALM OIL
   # PROJECT PALM-IMPUTABLE DEFORESTATION MAP
   # SPLIT THE SINGLE LAYER defo RASTER INTO ANNUAL LAYERS.
@@ -70,14 +72,6 @@ library(devtools)
   # Install Alex's gfcanalysis package
   if (!require(gfcanalysis)) install.packages('gfcanalysis')
   library(gfcanalysis)
-
-
-
-###     IMPORTANT NOTE    ###
-############################################################################################################
-# GFC and palm oil data were extracted for a bounding box for buffers of 60km (as the codes below indicates). 
- # JUST CHECK AGAIN QUICKLY 
-############################################################################################################
 
 
 ############################################################################################################
@@ -180,7 +174,10 @@ extract_gfc(AOI_sp, data_folder,
 ###
 ########################################################################################################################
 
-##### THRESHOLD the GFC data based on a specified percent cover threshold: 30%, 60% and 90% here. 
+
+##### THRESHOLD the GFC data based on a specified percent cover threshold: 25%, 50% and 75% here. 
+########################################################################################################################
+
 # read the extracted layers
 gfc_data <- brick("gfc_data.tif")
 
