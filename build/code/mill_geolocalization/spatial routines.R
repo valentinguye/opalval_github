@@ -21,13 +21,89 @@ library(leaflet)
 library(htmltools)
 
 
-setwd("./build/input/mill_geolocalization")
-
+setwd("C:/Users/GUYE/Desktop/opalval/build/input/mill_geolocalization")
 
 
 
 indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
 
+### Edition of pictures of deforestation and pictures of price spatial heterogeneity, for one cross-section, say 2010
+ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/output/IBS_mills_final.dta")
+ibs_geo <- ibs[!is.na(ibs$lat),]
+nrow(unique(ibs_geo[,"firm_id"]))
+
+ibs_geo$X <- ibs_geo$lon
+ibs_geo$Y <- ibs_geo$lat
+ibs_geo <- st_as_sf(ibs_geo, coords = c("lon", "lat"), crs = 4326)
+ibs_geo_prj <- st_transform(ibs_geo, crs = indonesian_crs )
+
+ibs_geo_prj <- st_buffer(ibs_geo_prj, dist = 20000)
+plot(ibs_geo_prj[ibs_geo_prj$year==2013,"cpo_price_imp1"])
+
+ibs_geo <- st_transform(ibs_geo_prj, crs = 4326)
+plot(ibs_geo[ibs_geo$year==2013,"cpo_price_imp2"])
+
+bins <- seq(from = 0, to = 300, by = 50)
+pal <- colorBin("inferno", domain = ibs_geo$ffb_price_imp2, bins = bins)
+ibs_geo[ibs_geo$year==2003,"ffb_price_imp2"]%>% 
+  leaflet() %>% 
+  addTiles()%>%
+  addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
+  addPolygons(opacity = 0.2, color = "white",
+              fillOpacity = 0.8, fillColor = ~pal(ffb_price_imp2),  
+              weight = 1, noClip = FALSE) %>% 
+  addLegend(pal = pal, values = ~ffb_price_imp2, opacity = 0.7,
+             title = "Mills' 20km catchment areas and <br/> their 2003 input mean unit values <br/> (2010 USD/ton CPO)", position = "topright")
+            
+
+max(ibs_geo$ffb_price_imp2, na.rm = TRUE)
+RdYlBu
+"viridis", "magma", "inferno", or "plasma".
+
+fill = FALSE,
+
+ibs_geo2010_prj$district_name == "Kab. Asahan"
+
+
+
+sb <- list()
+km <- 10
+#listnames <- c(1:9)
+while(km < 70){
+  sb[[km/10]] <- st_buffer(ibs_geo_prj, dist = km*1000)
+  #sb[[km/10]] <- st_transform(sb[[km/10]], crs = 4326)
+  km <- km + 10
+}
+
+
+class(sb[[2]])
+ggplot(data = sb[[2]]) + 
+  geom_sf()+
+  geom_text(data = sb[[2]], aes(x = X, y = Y, label = firm_id)) +
+  coord_sf(xlim = c(112, 113), ylim = c(-3, -2.5), expand = FALSE)
+
+plot(st_geometry(simple_buffers[[1]][1:3,]))
+plot(st_geometry(ibs_20km[1:3,]))
+
+ibs_20km <- st_buffer(ibs_prj, dist = 20000)
+ibs_10km <- st_buffer(ibs_prj, dist = 10000)
+ibs_20km <- st_transform(ibs_20km, crs = 4326)
+ibs_10km <- st_transform(ibs_10km, crs = 4326)
+
+plot(st_geometry(ibs_20km[1,]))
+
+
+
+
+
+
+
+
+
+
+
+
+#################################
 ibs <- read.dta13("IBS_mills_geolocalized.dta")
 ibs$X <- ibs$lon
 ibs$Y <- ibs$lat
@@ -42,6 +118,16 @@ n <- m[lengths(m)>1]
 
 ibs_unref <- st_read("ibs_unref")
 ibs_unref <- st_transform(ibs_unref, crs = 4326)
+
+# UML DATA
+uml <- read_excel("traseMills_capEstyear.xlsx") 
+uml <- dplyr::select(uml, trase_code, parent_co, mill_name, est_year, latitude, longitude)
+uml$latitude <- as.numeric(uml$latitude)
+uml$longitude <- as.numeric(uml$longitude)
+uml$lat <- uml$latitude
+uml$lon <- uml$longitude
+uml <- st_as_sf(uml,	coords	=	c("longitude",	"latitude"), crs = 4326)
+uml <- st_transform(uml, crs = 4326)
 
 # LEAFLET ESRI WORLD IMAGERY REQUIRES GEODESIC COORDINATES.
 # st_transform alone IS NOT SUFFICIENT, ONE NEEDS TO FIRST CHANGE SRC. 
