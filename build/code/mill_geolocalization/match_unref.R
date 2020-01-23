@@ -12,15 +12,23 @@
 
 
 # First, screen (flag) only ibs_unref mills that produce at least once some CPO. 
+
+# Second, MATCH 
 # For each of them, there are several obs. of number of workers. 
 # report all the lines in MD that match with one of these observations; 
 # AND whose adresses encompasse the IBS mill's district. 
 
-# How to 
+# Third, prepare for manual resolution of WITHIN CONFLICTS
+
+# Fourth, prepare for manual resolution of BETWEEN CONFLICTS
+
+# And finally put everything back together. 
+
+
 
 rm(list = ls())
 
-# PACKAGES
+#### PACKAGES #### 
 #install.packages("sf", source = TRUE)
 library(sf)
 
@@ -46,9 +54,11 @@ devtools::install_github("jabiru/tictoc")
 library(tictoc)
 
 
-### LOCAL WORKING DIRECTORY, just to shorten calls.
+#### LOCAL WORKING DIRECTORY, just to shorten calls.####
 setwd(here("./build/input/mill_geolocalization/matching_unref"))
 
+
+#### PREPARE DATA ####
 
 # read in the digitized manufacturing directories.
 md <- read_excel("direktori_industri_merged_cleaned.xlsx")
@@ -59,8 +69,6 @@ ibs <- read.dta13(here("./build/output/IBS_PO_98_15_cleaned.dta"))
 unref_cross <- readRDS(here("./build/input/mill_geolocalization/ibs_unref.Rdata"))
 unref_cross <- unref_cross[,"firm_id"]
 unref_cross <- st_set_geometry(unref_cross, NULL)
-
-
 
 # get every annual records of each unref mill.
 unref <- merge(ibs, unref_cross, by = "firm_id")
@@ -80,8 +88,11 @@ length(unique(unref[unref$any_cpo_output == TRUE,"firm_id"]))
 
 
 
-## Match to each unref record, all the records of MD that have the same number of workers (i.e. be it the same year or not, same district or not)
 
+
+#### MATCH WITH MD #### 
+
+## Match to each unref record, all the records of MD that have the same number of workers (i.e. be it the same year or not, same district or not)
 #this adds a list column. There is one list element for each unref row. 
 match <- nest_join(unref, md, by = c("workers_total_imp3" = "no_workers"), keep = TRUE)
 # each list element is a dataframe
@@ -138,8 +149,6 @@ grp_n_match <- ddply(match, "firm_id", summarise,
 match <- merge(match, grp_n_match, by = "firm_id") 
 
 
-ddply(cfl_resolved, "firm_id", summarise, e <- all_na(company_name))
-
 # substract from the one_match category those that have different company name matches across years.
 for(i in unique(match[match$one_match == TRUE, "firm_id"])){
   # extract the names of all the MD matches of establishment i within the one_match category 
@@ -180,43 +189,47 @@ ddply(match, c("i_n_match","any_cpo_output"), summarise,
 # ou même pas, manuellement on avait validé même quand il n'y avait qu'une obs. qui matchait.
 # une partie de ces cas sont écartés ensuite pendant la phase de résolution des conflits. 
 
-cfl <- match[match$svl_match == TRUE & match$any_cpo_output == TRUE, ]
-length(unique(cfl$firm_id))
+wtn_cfl <- match[match$svl_match == TRUE & match$any_cpo_output == TRUE, ]
+length(unique(wtn_cfl$firm_id))
 
+
+
+
+#### WITHIN CONFLICTS ####
 
 ### Prepare the data to resolve "within" conflicts, i.e. conflicts in matched company names within each firm_id. 
 
 # add variables on the total different matches for one ibs establishment.  
-cfl$diff_names <- rep(NA, nrow(cfl))
-cfl$n_diff_names <- rep(NA, nrow(cfl))
-for(i in unique(cfl$firm_id)){
-  names <- lapply(cfl[cfl$firm_id == i, "y"], function(i.elmt) i.elmt$company_name)
-  cfl[cfl$firm_id == i, "diff_names"] <- paste(unique(unlist(names)), collapse = "; ")
-  cfl[cfl$firm_id == i, "n_diff_names"] <- length(unique(unlist(names)))
+wtn_cfl$diff_names <- rep(NA, nrow(wtn_cfl))
+wtn_cfl$n_diff_names <- rep(NA, nrow(wtn_cfl))
+for(i in unique(wtn_cfl$firm_id)){
+  names <- lapply(wtn_cfl[wtn_cfl$firm_id == i, "y"], function(i.elmt) i.elmt$company_name)
+  wtn_cfl[wtn_cfl$firm_id == i, "diff_names"] <- paste(unique(unlist(names)), collapse = "; ")
+  wtn_cfl[wtn_cfl$firm_id == i, "n_diff_names"] <- length(unique(unlist(names)))
 }
 
-#cfl[cfl$firm_id == 1763, "y"]
+#wtn_cfl[wtn_cfl$firm_id == 1763, "y"]
 
 
 # extract all the matches from the list column 
 l <- list()
-for(i in 1:nrow(cfl)){
-    s <- cfl[i, "y"][[1]]
-    s$matched_firm_id <- rep(cfl[i, "firm_id"], nrow(cfl[i, "y"][[1]]))
-    s$matched_year <- rep(cfl[i, "year"], nrow(cfl[i, "y"][[1]]))
+for(i in 1:nrow(wtn_cfl)){
+    s <- wtn_cfl[i, "y"][[1]]
+    s$matched_firm_id <- rep(wtn_cfl[i, "firm_id"], nrow(wtn_cfl[i, "y"][[1]]))
+    s$matched_year <- rep(wtn_cfl[i, "year"], nrow(wtn_cfl[i, "y"][[1]]))
     l[[i]]<- s
 }
 md_matches <- bind_rows(l)
 rm(l)
 
 
-# and merge them with the panel cfl
+# and merge them with the panel wtn_cfl
 # rename first the year variable in md_matches
 names(md_matches)[names(md_matches) == "year"] <- "md_year"
-cfl <- merge(cfl, md_matches, by.x = c("firm_id","year"), by.y = c("matched_firm_id", "matched_year"), all = TRUE)
+wtn_cfl <- merge(wtn_cfl, md_matches, by.x = c("firm_id","year"), by.y = c("matched_firm_id", "matched_year"), all = TRUE)
 
 # export relevant variables to manual work
-cfl <- dplyr::select(cfl,	firm_id, min_year, year,	workers_total_imp3,	n_diff_names, diff_names,  
+wtn_cfl <- dplyr::select(wtn_cfl,	firm_id, min_year, year,	workers_total_imp3,	n_diff_names, diff_names,  
                      md_year, company_name, no_workers, 
                      district_name, kec_name,	village_name, address,
                      main_product, 
@@ -224,38 +237,45 @@ cfl <- dplyr::select(cfl,	firm_id, min_year, year,	workers_total_imp3,	n_diff_na
                      out_ton_rpo_imp1, out_ton_rpo_imp2, out_ton_rpko_imp1, out_ton_rpko_imp2,
                      pct_own_cent_gov_imp,	pct_own_loc_gov_imp,	pct_own_nat_priv_imp,	pct_own_for_imp)
 
-write_xlsx(cfl, "unref_cfl.xlsx")
+write_xlsx(wtn_cfl, "wtn_cfl.xlsx")
+           
+           
+           
+           
 
-
+#### BETWEEN CONFLICTS #### 
 
 ### now we want to resolve "between" conflicts, i.e. conflicts in matched company names between IBS firm_ids. 
 # For this purpose, it is necessary to have all years for each ibs firm_id in the two categories 
 # (resolved conflict cases and one_match cases (only those who produced CPO at least once))
 
-## For resolved within conflict cases, one can keep only the lines of cfl that have the company_name equal to the resolved one. 
+## Within resolved conflicts
 # import mannually done work 
-cfl_resolved <- read_excel("unref_cfl_done.xlsx")
+wtn_cfl_resolved <- read_excel("wtn_cfl_done.xlsx")
 
 # for each firm_id, keep only the row with the mannually deemed correct company name. 
-cfl_resolved <- cfl_resolved[is.na(cfl_resolved$company_name)== FALSE,] 
+# (because only one row per firm_id was given the resolved company name in the manual work in Excel)
+wtn_cfl_resolved <- wtn_cfl_resolved[is.na(wtn_cfl_resolved$company_name)== FALSE,] 
 
-length(unique(cfl_resolved$company_name)) 
+length(unique(wtn_cfl_resolved$company_name)) 
 # So there was 104 different firm_id that had within conflicting md company names. 
 # For 102 of them, we could resolve the within conflict. 
 # Among them, there are only 100 unique company names, meaning that there are some between conflicts. 
 
 # rename the company name variable 
-names(cfl_resolved)[names(cfl_resolved) == "company_name"] <- "within_resolved_c_name"
+names(wtn_cfl_resolved)[names(wtn_cfl_resolved) == "company_name"] <- "within_resolved_c_name"
 
-# merge it with the cfl data frame, 
-cfl2 <- merge(cfl, cfl_resolved[, c("firm_id", "within_resolved_c_name")], by = c("firm_id"), all = TRUE)
+# merge it with the wtn_cfl data frame, 
+wtn_cfl_resolved <- merge(wtn_cfl, wtn_cfl_resolved[, c("firm_id", "within_resolved_c_name")], by = c("firm_id"), all = TRUE)
 
 # we don't keep only the records where the company_name is the one that was chosen mannually, because in some cases we might  
-# need records for the same mill but with a name differently spelled. 
+# need records for the same mill but with a  differently spelled name. 
 
 
-## For one_match cases, one should just reproduce the procedure applied to prepare data for resolution of within conflicts. 
+## one_match cases
+# one should just reproduce the procedure applied to prepare data for resolution of within conflicts. 
 
+#keep only the one_match cases that are potential mills (they produced CPO at least once)
 no_cfl <- match[match$one_match == TRUE & match$any_cpo_output == TRUE,]
 
 # add variables on the total different matches for one ibs establishment.  
@@ -269,11 +289,10 @@ for(i in unique(no_cfl$firm_id)){
 
 #no_cfl[no_cfl$firm_id == 1763, "y"]
 
-
 # extract all the matches from the list column 
 l <- list()
 for(i in 1:nrow(no_cfl)){
-  s <- no_cfl[i, "y"][[1]]
+  s <- no_cfl[i, "y"][[1]] # there is always only one element anyways
   s$matched_firm_id <- rep(no_cfl[i, "firm_id"], nrow(no_cfl[i, "y"][[1]]))
   s$matched_year <- rep(no_cfl[i, "year"], nrow(no_cfl[i, "y"][[1]]))
   l[[i]]<- s
@@ -298,71 +317,50 @@ no_cfl <- dplyr::select(no_cfl,	firm_id, min_year, year,	workers_total_imp3,	n_d
 
 
 ## Spot the between conflicts
-# have the same column in both data frames
+# have the within_resolved_c_name column in no_cfl data frame too.
 no_cfl$within_resolved_c_name <- no_cfl$company_name
+
 # merge them 
-btw_cfl <- merge(cfl2, no_cfl, all = TRUE)
+unique_match <- merge(wtn_cfl_resolved, no_cfl, all = TRUE)
 
-# now select only duplicates across firm_id
-btw_duplicates <- ddply(btw_cfl, c("within_resolved_c_name"), summarise, 
+# now identify duplicates across firm_id
+btw_duplicates <- ddply(unique_match, c("within_resolved_c_name"), summarise, 
       btw_duplicates = length(unique(firm_id)))
-btw_cfl <- merge(btw_cfl, btw_duplicates, by = "within_resolved_c_name", all = TRUE)
-btw_cfl <- btw_cfl[btw_cfl$btw_duplicates]
 
-describe(btw_cfl$btw_duplicates)
+unique_match <- merge(unique_match, btw_duplicates, by = "within_resolved_c_name", all = TRUE)
 
-# ON EN EST LA? SEE WHAT IS THIS 79, AND FILTER ON THE VALUES OF btw_duplicates
+describe(unique_match$btw_duplicates)
+# 79 firm_id have no within resolved company name. 
+all_na(unique_match[unique_match$btw_duplicates == 79,"within_resolved_c_name"])
 
-btw_cfl 
-btw_cfl2<- btw_cfl[duplicated((btw_cfl$within_resolved_c_name)|duplicated(btw_cfl$within_resolved_c_name, fromLast = TRUE)),]
-#################################################################################################################
+# keep only between conflicts
+btw_cfl <- unique_match[unique_match$btw_duplicates > 1 & is.na(unique_match$within_resolved_c_name) == FALSE,] 
 
-
-
-### merge this company name variable to unref, both for 
-## For one_match cases
-no_cfl <- match[match$one_match == TRUE & match$any_cpo_output == TRUE,]
-
-# extract all the matches from the list column 
-l <- list()
-for(i in 1:nrow(no_cfl)){
-  s <- no_cfl[i, "y"][[1]]
-  s$matched_firm_id <- rep(no_cfl[i, "firm_id"], nrow(no_cfl[i, "y"][[1]]))
-  s$matched_year <- rep(no_cfl[i, "year"], nrow(no_cfl[i, "y"][[1]]))
-  l[[i]]<- s
-}
-md_matches.no_cfl <- bind_rows(l)
-rm(l)
-
-names(md_matches.no_cfl)[names(md_matches.no_cfl) == "year"] <- "md_year"
-
-length(unique(no_cfl$firm_id)) # it's 87 different firm_id
-length(unique(md_matches.no_cfl$company_name)) # that have matched with only 82 company names. 
-# we want to keep the 87 different IBS records, with their duplicates in company names. 
-anyNA(md_matches.no_cfl$company_name) # company names are never missing
-# so we just extract the first instance of duplicated firm_id. 
-md_matches.no_cfl <- md_matches.no_cfl[!duplicated(md_matches.no_cfl$matched_firm_id),]
-
-md_matches.no_cfl$no_cfl <- 1 
-
-cfl <- merge(cfl, md_matches.no_cfl[, c("firm_id", "year","no_cfl")], by.x = c("firm_id","year"), by.y = c("matched_firm_id", "matched_year"), all = TRUE)
-
-unref <- merge(unref, no_cfl[, c("firm_id", "year", "company_name")], by = c("firm_id", "year"), all = TRUE)
+setorder(btw_cfl, within_resolved_c_name, firm_id, year)
+write_xlsx(btw_cfl, "btw_cfl.xlsx")
 
 
-## For resolved conflicting cases
-# import done manual work 
-cfl_resolved <- read_excel("unref_cfl_done.xlsx")
+# Append the resolved within conflicts that did not have a between conflict, with the resolved between conflicts. 
+no_btw_cfl <- unique_match[unique_match$btw_duplicates == 1,]
+resolved_btw_cfl <- read_excel("btw_cfl_done.xlsx")
+#keep only cases that could actually be resolved (between_resolved_c_name is a manually created variable 
+resolved_btw_cfl <- resolved_btw_cfl[is.na(resolved_btw_cfl$between_resolved_c_name)==FALSE,]
 
-# keep only the row with the mannually deemed correct company name. 
-cfl_resolved <- cfl_resolved[is.na(cfl_resolved$company_name)== FALSE,] # (In 2 IBS mills cases it was not possible to resolve the conflict.) 
+# keep for each data frame only one instance for each ibs establishment (the first one here)
+no_btw_cfl <- no_btw_cfl[!duplicated(no_btw_cfl$firm_id),]
+resolved_btw_cfl <- resolved_btw_cfl[!duplicated(resolved_btw_cfl$firm_id),] 
 
-#merge
-unref <- merge(unref, cfl_resolved[, c("firm_id", "year", "n_diff_names","diff_names", "company_name")], by = c("firm_id", "year"), all = TRUE)
+# give them both a final company name column 
+no_btw_cfl$matched_resolved_company_name <- no_btw_cfl$within_resolved_c_name
+resolved_btw_cfl$matched_resolved_company_name <- resolved_btw_cfl$between_resolved_c_name
+#and remove useless columns
+no_btw_cfl <- no_btw_cfl[, c("firm_id", "year", "matched_resolved_company_name")]
+resolved_btw_cfl <- resolved_btw_cfl[, c("firm_id", "year", "matched_resolved_company_name")]
 
+# and append them 
+named_unref <- merge(no_btw_cfl, resolved_btw_cfl, all = TRUE)
 
-length(unique(md_matches.no_cfl$matched_firm_id))
-
+write_xlsx(named_unref, "named_unref.xlsx")
 
 
 
