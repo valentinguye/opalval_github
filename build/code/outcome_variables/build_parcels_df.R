@@ -59,6 +59,8 @@ library(tictoc)
 ### LOCAL WORKING DIRECTORY, just to shorten calls.
 setwd(here("/build/input/outcome_variables"))
 
+#### define parcel size ####
+PS <- 10000
 
 ##### PREPARE MILL POINTS #####
 ############################################################################################################
@@ -89,9 +91,6 @@ rm(mills)
 ##### PREPARE ONE POLYGON OF MILLS' TOTAL INFLUENCE #####
 ############################################################################################################
 
-#the parcel size is defined here, in meters. 
-PS <- 10000
-#PS <- 40000
 # that is the mask of influence area of all mills from IBS over the country. 
 #(note the buffer size is note related to the choice of the parcel size. 
 # The +PS adds a buffer for the expand = *FALSE* argument: it's decided to make the parcels go *beyond* the 40 kms through the aggregation. 

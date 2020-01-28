@@ -340,28 +340,90 @@ setorder(btw_cfl, within_resolved_c_name, firm_id, year)
 write_xlsx(btw_cfl, "btw_cfl.xlsx")
 
 
-# Append the resolved within conflicts that did not have a between conflict, with the resolved between conflicts. 
-no_btw_cfl <- unique_match[unique_match$btw_duplicates == 1,]
-resolved_btw_cfl <- read_excel("btw_cfl_done.xlsx")
-#keep only cases that could actually be resolved (between_resolved_c_name is a manually created variable 
-resolved_btw_cfl <- resolved_btw_cfl[is.na(resolved_btw_cfl$between_resolved_c_name)==FALSE,]
 
-# keep for each data frame only one instance for each ibs establishment (the first one here)
-no_btw_cfl <- no_btw_cfl[!duplicated(no_btw_cfl$firm_id),]
-resolved_btw_cfl <- resolved_btw_cfl[!duplicated(resolved_btw_cfl$firm_id),] 
+
+#### PUT NAMED MILLS TOGETHER #### 
+## Append the resolved within conflicts that did not have a between conflict, with the resolved between conflicts. 
+
+# call them and order them
+no_btw_cfl_panel <- unique_match[unique_match$btw_duplicates == 1,]
+resolved_btw_cfl_panel <- read_excel("btw_cfl_done.xlsx")
+
+class(resolved_btw_cfl_panel) <- class(no_btw_cfl_panel)
+
+no_btw_cfl_panel <- setorder(no_btw_cfl_panel, firm_id, year)
+resolved_btw_cfl_panel <- setorder(resolved_btw_cfl_panel, firm_id, year)
+
+
+#keep only cases that could actually be resolved (between_resolved_c_name is a manually created variable) 
+resolved_btw_cfl_panel <- resolved_btw_cfl_panel[is.na(resolved_btw_cfl_panel$between_resolved_c_name)==FALSE,]
 
 # give them both a final company name column 
-no_btw_cfl$matched_resolved_company_name <- no_btw_cfl$within_resolved_c_name
-resolved_btw_cfl$matched_resolved_company_name <- resolved_btw_cfl$between_resolved_c_name
-#and remove useless columns
-no_btw_cfl <- no_btw_cfl[, c("firm_id", "year", "matched_resolved_company_name")]
-resolved_btw_cfl <- resolved_btw_cfl[, c("firm_id", "year", "matched_resolved_company_name")]
+no_btw_cfl_panel$matched_resolved_company_name <- no_btw_cfl_panel$within_resolved_c_name
+resolved_btw_cfl_panel$matched_resolved_company_name <- resolved_btw_cfl_panel$between_resolved_c_name
 
-# and append them 
-named_unref <- merge(no_btw_cfl, resolved_btw_cfl, all = TRUE)
+#and remove useless columns
+no_btw_cfl_panel <- no_btw_cfl_panel[, c("firm_id", "year", "matched_resolved_company_name", "district_name", "kec_name", "village_name")]
+resolved_btw_cfl_panel <- resolved_btw_cfl_panel[, c("firm_id", "year", "matched_resolved_company_name", "district_name", "kec_name", "village_name")]
+
+# harmonize NAs (there are both "" and NA) in village name variable
+no_btw_cfl_panel[no_btw_cfl_panel$village_name == "", "village_name"] <- NA
+#resolved_btw_cfl_panel[is.na(resolved_btw_cfl_panel$village_name), "village_name"] <- ""
+#resolved_btw_cfl_panel[resolved_btw_cfl_panel$village_name == "", "village_name"] <- NA
+
+
+# keep for each data frame only the records that have the desa information 
+no_btw_cfl_panel1 <- no_btw_cfl_panel[is.na(no_btw_cfl_panel$village_name) == FALSE 
+                         & !str_contains(x = "*", pattern = no_btw_cfl_panel$village_name, switch = TRUE)
+                         & no_btw_cfl_panel$district_name != "123456789xyz"
+                         ,]
+length(unique(no_btw_cfl_panel1$firm_id))
+
+resolved_btw_cfl_panel1 <- resolved_btw_cfl_panel[is.na(resolved_btw_cfl_panel$village_name) == FALSE 
+                         & !str_contains(x = "*", pattern = resolved_btw_cfl_panel$village_name, switch = TRUE)
+                         & resolved_btw_cfl_panel$district_name != "123456789xyz"
+                         ,]
+length(unique(resolved_btw_cfl_panel1$firm_id))
+
+# only the no_btw_cfl data frame has loss of mills (9) with the constraints on geographic info. 
+
+# keep for each data frame only one instance for each ibs establishment (the earliest one here)
+no_btw_cfl <- no_btw_cfl_panel[!duplicated(no_btw_cfl_panel$firm_id),]
+resolved_btw_cfl <- resolved_btw_cfl_panel[!duplicated(resolved_btw_cfl_panel$firm_id),] 
+
+no_btw_cfl1 <- no_btw_cfl_panel1[!duplicated(no_btw_cfl_panel1$firm_id),]
+resolved_btw_cfl1 <- resolved_btw_cfl_panel1[!duplicated(resolved_btw_cfl_panel1$firm_id),] 
+
+# and append those with a correct geographic information set
+named_unref <- merge(no_btw_cfl1, resolved_btw_cfl1, all = TRUE)
+
+## add the 9 mills with incomplete geographic information set (all in no_btw_cfl)
+
+# mills for which something was missing
+firm_id <- no_btw_cfl[!is.element(no_btw_cfl$firm_id, no_btw_cfl1$firm_id), "firm_id"]
+
+# select those mills that only have a star desa name 
+# (stars signal village names that are less trustworthy due to some checks in cleaning_IBS.do)
+no_btw_cfl_panel <- no_btw_cfl_panel[no_btw_cfl_panel$firm_id %in% firm_id,]
+# and add a record with their star name to the named_unref
+no_btw_cfl_star <-no_btw_cfl_panel[is.na(no_btw_cfl_panel$village_name) == FALSE,]
+no_btw_cfl_star <-no_btw_cfl_star[!duplicated(no_btw_cfl_star$firm_id),]
+named_unref <- merge(named_unref, no_btw_cfl_star, all = TRUE)
+
+# select those mills that never have a desa name
+no_name <- ddply(no_btw_cfl_panel, "firm_id", summarise, no_name = sum(is.na(village_name))==length(village_name))
+no_btw_cfl_name <- merge(no_btw_cfl_panel, no_name, by = "firm_id", all = TRUE)
+no_btw_cfl_name <-no_btw_cfl_name[no_btw_cfl_name$no_name == TRUE,]
+no_btw_cfl_name <- dplyr::select(no_btw_cfl_name, -no_name)
+# and add any (the earliest) record from each of them 
+no_btw_cfl_name <-no_btw_cfl_name[!duplicated(no_btw_cfl_name$firm_id),]
+named_unref <- merge(named_unref, no_btw_cfl_name, all = TRUE)
+
+
+named_unref <- setorder(named_unref, firm_id)
 
 write_xlsx(named_unref, "named_unref.xlsx")
 
-
-
+length(unique(named_unref$firm_id))
+length(unique(named_unref$matched_resolved_company_name))
 
