@@ -62,6 +62,20 @@ setwd(here("/build/input/outcome_variables"))
 #### define parcel size ####
 PS <- 10000
 
+#### define buffer size for the catchment areas  ####
+BS <- 40000
+
+#### define projection #### 
+#   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
+#   the Cylindrical Equal Area projection seems appropriate for Indonesia extending east-west along equator. 
+#   According to https://spatialreference.org/ref/sr-org/8287/ the Proj4 is 
+#   +proj=cea +lon_0=0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs
+#   which we center at Indonesian longitude with lat_ts = 0 and lon_0 = 115.0 
+indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
+
+
+years <- seq(from = 1998, to = 2015, by = 1)
+
 ##### PREPARE MILL POINTS #####
 ############################################################################################################
 
@@ -70,18 +84,7 @@ mills <- read.dta13(here("/build/input/mill_geolocalization/IBS_mills_geolocaliz
 
 #turn into an sf object. 
 mills <- st_as_sf(mills,	coords	=	c("lon",	"lat"), crs=4326)
-
-# set CRS and project
-st_crs(mills) 
-# EPSG 4326 - proj4string: "+proj=longlat +datum=WGS84 +no_defs" i.e. unprojected because of crs argument in st_as_sf above. 
-
-#   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
-#   the Cylindrical Equal Area projection seems appropriate for Indonesia extending east-west along equator. 
-#   According to https://spatialreference.org/ref/sr-org/8287/ the Proj4 is 
-#   +proj=cea +lon_0=0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs
-#   which we center at Indonesian longitude with lat_ts = 0 and lon_0 = 115.0 
-indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
-
+# and project
 mills_prj <- st_transform(mills, crs = indonesian_crs) 
 
 rm(mills)
@@ -93,19 +96,24 @@ rm(mills)
 
 # that is the mask of influence area of all mills from IBS over the country. 
 #(note the buffer size is note related to the choice of the parcel size. 
-# The +PS adds a buffer for the expand = *FALSE* argument: it's decided to make the parcels go *beyond* the 40 kms through the aggregation. 
-# the maximum distance a parcel might go beyond is less than the parcel size PS.
-# With expand = FALSE, a parcel that does not gather enough input cells to be ~10000m long is not created (it's NA) in the output
+# The +PS adds a buffer for the expand = *FALSE* argument in the aggregate function: 
+# it's decided to make the parcels go *beyond* the 40 kms through the aggregation. 
+# the strict maximum distance a parcel might go beyond is the parcel size PS.
+# With expand = FALSE, a parcel that does not gather enough input cells to be ~10000m long is not created (it's NA) in the output. 
+# This makes sure that all parcels have a deforestation rate computed with the same amount of information. 
 # But those which do gather enough small cells will go beyond the 40kms and within the 40km+PSm)
 
 mills_coord <- st_geometry(mills_prj)
-mills_ca40 <- st_buffer(mills_prj, dist = 40000+PS) 
-for(i in 1:nrow(mills_ca40)){
-  mills_ca40$geometry[i] <- st_as_sfc(st_bbox(mills_ca40$geometry[i]))
+# here, we define the catchment area invariably at 50 km, the maximum buffer we will consider, so that the deforestation aggregation 
+# at the parcel level is done once and for all. The BS variable will be used later on, when selecting what parcels to keep. 
+# here we are not at parcel selection yet but in the forge of all possibly useful parcels. 
+mills_ca <- st_buffer(mills_prj, dist = 50+PS) 
+for(i in 1:nrow(mills_ca)){
+  mills_ca$geometry[i] <- st_as_sfc(st_bbox(mills_ca$geometry[i]))
 }
-total_ca40 <- st_union(st_geometry(mills_ca40))
-total_ca40 <- st_as_sf(total_ca40)
-total_ca40_sp <- as(total_ca40, "Spatial")
+total_ca <- st_union(st_geometry(mills_ca))
+total_ca <- st_as_sf(total_ca)
+total_ca_sp <- as(total_ca, "Spatial")
 
 # A parallel computing set up has been used to speed things up. ( ///!!!\\\ )
 # it has 3 steps: 
@@ -126,12 +134,10 @@ total_ca40_sp <- as(total_ca40, "Spatial")
 
 ### 1. build the function that will be called in the foreach loop: 
 
-years <- c(1:18)
-
 annual_aggregate <- function(t, threshold){
   
   ## Define which process (year and threshold) we are in: 
-  processname <- paste0("./annual_maps/defo_",threshold,"th_", years[t],".tif")
+  processname <- paste0("./annual_maps/defo_",threshold,"th_", t,".tif")
   
   #create unique filepath for temp directory
   dir.create(file.path(paste0(processname,"_Tmp")), showWarnings = FALSE)
@@ -145,16 +151,17 @@ annual_aggregate <- function(t, threshold){
   annual_defo <- raster(processname)
   
   # mask with the mill influence polygon. 
-  mask(annual_defo, total_ca40_sp, 
-       filename = paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif"),
+  mask(annual_defo, total_ca_sp, 
+       filename = paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif"),
        overwrite = TRUE)
   
   rm(annual_defo)
   
+  
   ## Aggregation operation
   
   # read in the masked raster 
-  maskedrastername <- paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif")
+  maskedrastername <- paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif")
   annual_defo_masked <- raster(maskedrastername)
   
   # aggregate it from the 30m cells to PSm cells with mean function. 
@@ -163,11 +170,13 @@ annual_aggregate <- function(t, threshold){
                     fun = mean,
                     filename = paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"),
                     overwrite = TRUE)
-  
+  # Since in each annual map, original pixels are either 1 or 0 valued (conversion from forest to op plantation remotely sensed 
+  # for that pixel that year or not) and each pixel is the same area, the mean value of a group of pixels is 
+  # the ratio of the area deforested over the parcel area. This is refered to as the percentage of deforestation. 
   
   ## Deal with memory and stockage issues: 
   rm(annual_defo_masked)
-  file.remove(paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",years[t],"_masked.tif"))
+  file.remove(paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif"))
   #removes entire temp directory without affecting other running processes (but there should be no temp file now)
   unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
   
@@ -188,7 +197,7 @@ aggregate_parallel <- function(detected_cores, th){
   foreach(t = 1:length(years), 
           # .combine = raster::stack, combine the outputs as a mere character list (by default)
           .multicombine = TRUE,
-          .export = c("annual_aggregate", "years", "PS", "total_ca40_sp"), 
+          .export = c("annual_aggregate", "years", "PS", "BS", "total_ca_sp"), 
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
 }
@@ -231,29 +240,47 @@ while(th < 100){
   
   # turn it to a data frame
   df_wide <- raster::as.data.frame(parcels_brick, na.rm = TRUE, xy = TRUE, centroids = TRUE)
+  df_wide <- df_wide %>% dplyr::rename(lon = x, lat = y)
   
-  # reshape to long format
-  df_wide$id <- c(1:nrow(df_wide))
   
-  varying_vars <- paste0("parcels_",th,"th.", seq(from = 1, to = 18))
+#### Remove here parcels that are not within the catchment area. ####
+  
+  # Such parcels are here because we set a larger mask than the strict union of 40 km buffers.
+  # Indeed, we wanted to be sure to have no 30m cell missing (masked) in the aggregation - even for the parcels 
+  # aggregated at the border of catchment area.
+  df_wide <- st_as_sf(df_wide, coords = c("lon", "lat"), remove = FALSE, crs = indonesian_crs)
+  # So here we are making the choice of our catchment area size 
+  within <- st_is_within_distance(df_wide, mills_coord, dist = BS)
+  df_wide <- df_wide %>% dplyr::filter(lengths(within) >0)
+  df_wide <- df_wide %>% st_drop_geometry()
+
+## reshape to long format
+  df_wide$parcel_id <- c(1:nrow(df_wide))
+  
+  # vector of the names in the wide format of our time varying variables 
+  # varying_vars <- paste0("parcels_",PS/1000,"km_",th,"th.", seq(from = 1, to = 2))
+  varying_vars <- paste0("parcels_",PS/1000,"km_",th,"th.", seq(from = 1, to = 18))
   
   df <- reshape(df_wide, 
                 varying = varying_vars, 
                 v.names = "defo_pct", 
                 timevar = "year",
-                #idvar = c("x", "y", "id"),
-                ids = "id",
+                idvar = c("parcel_id", "lon", "lat"),
+                ids = "parcel_id",
                 direction = "long",
-                sep = "."
+                sep = ".",
+                new.row.names = seq(from = 1, to = nrow(df_wide)*length(years), by = 1)
                 )
+  
+  # replace the indices from the raster::as.data.frame with actual years. 
+  df <- mutate(df, year = years[year])
   
   rm(varying_vars)
   
-  df <- setorder(df, id, year)
+  df <- setorder(df, parcel_id, year)
   
-  saveRDS(df, file = paste0("./panel_parcels_",PS/1000,"km_",th,"th.Rdata"))
+  saveRDS(df, file = paste0("./panel_parcels_",PS/1000,"km_",BS/1000,"CA_",th,"th.Rdata"))
 }
-
 
 #df <- pivot_longer(df_wide, 
  #                  cols = -id, 
@@ -272,22 +299,22 @@ while(th < 100){
 #####                         TEST                   #######
 
 # make the smaller fileS for the test. Don't need to do it again. 
-mills_ca40_sp <- as(mills_ca40, "Spatial")
+mills_ca_sp <- as(mills_ca, "Spatial")
 
 annualrastername <- "./annual_maps/defo_50th_10.tif"
 annual_defo <- raster(annualrastername)
-test <- crop(annual_defo, y = mills_ca40_sp[1,], filename = "./test/defo_50th_10_test.tif", overwrite = TRUE)
+test <- crop(annual_defo, y = mills_ca_sp[1,], filename = "./test/defo_50th_10_test.tif", overwrite = TRUE)
 plot(test)
 
 annualrastername <- "./annual_maps/defo_50th_11.tif"
 annual_defo <- raster(annualrastername)
-test <- crop(annual_defo, y = mills_ca40_sp[1,], filename = "./test/defo_50th_11_test.tif", overwrite = TRUE)
+test <- crop(annual_defo, y = mills_ca_sp[1,], filename = "./test/defo_50th_11_test.tif", overwrite = TRUE)
 plot(test)
 
 rm(test)
 ###################################################################################################"
 
-years <- c(1:18)
+years <- seq(from = 1998, to = 2015, by = 1)
 t <- 10
 threshold <- 50
 th <- 50
@@ -296,7 +323,7 @@ th <- 50
 annual_aggregate <- function(t, threshold){
   
   ## Define which process we are in: 
-  processname <- paste0("./test/defo_",threshold,"th_", years[t],"_test",".tif")
+  processname <- paste0("./test/defo_",threshold,"th_", t,"_test",".tif")
   
   #create unique filepath for temp directory
   dir.create(file.path(paste0(processname,"_Tmp")), showWarnings = FALSE)
@@ -308,13 +335,13 @@ annual_aggregate <- function(t, threshold){
   annual_defo <- raster(processname)
   
   #mask it with the mill influence polygon. 
-  mask(annual_defo, total_ca40_sp, 
-       filename = paste0("./test/defo_",threshold,"th_", years[t],"_masked.tif"),
+  mask(annual_defo, total_ca_sp, 
+       filename = paste0("./test/defo_",threshold,"th_", t,"_masked.tif"),
        overwrite = TRUE)
   rm(annual_defo)
   
   # read in the masked raster 
-  maskedrastername <- paste0("./test/defo_",threshold,"th_", years[t],"_masked.tif")
+  maskedrastername <- paste0("./test/defo_",threshold,"th_", t,"_masked.tif")
   annual_defo_masked <- raster(maskedrastername)
   
   #aggregate it from the 30m cells to PSm cells with mean function. 
@@ -344,7 +371,7 @@ aggregate_parallel <- function(detected_cores, th){
           #.combine = ,
           #.combine = list.files,
           .multicombine = F,
-          .export = c("annual_aggregate", "years", "PS", "total_ca40_sp"), 
+          .export = c("annual_aggregate", "years", "PS", "total_ca_sp"), 
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
 }
@@ -404,19 +431,19 @@ str(df)
 ### Draft code ### 
 # create a raster from scratch, of resolution the plot size we want for our analysis. 
 #let's say 4 square km. 
-# this a raster with the defined resolution, but over the whole bbox (extent) of total_ca40
-r <- raster(total_ca40, res = PS, crs = indonesian_crs)
+# this a raster with the defined resolution, but over the whole bbox (extent) of total_ca
+r <- raster(total_ca, res = PS, crs = indonesian_crs)
 
 # mask outside the influence 
 values(r) <- 1
-mask <- as(total_ca40, "Spatial")
+mask <- as(total_ca, "Spatial")
 rp <- mask(r, mask, updatevalue = NA)
 rm(r)
 
 # make annual layers.
 years <- c(1:18)
 for(t in 1:length(years)){
-  annualrastername <- paste0("./annual_parcels/parcels_", years[t],".tif")
+  annualrastername <- paste0("./annual_parcels/parcels_", t,".tif")
   writeRaster(rp, 
               filename = annualrastername)
 }

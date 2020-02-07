@@ -1,9 +1,10 @@
 
 rm(list = ls())
 # PACKAGES
-neededPackages = c("leaflet", "htmltools", "readxl", "dplyr", "tidyverse", "raster", "sf", "foreign", "sp", "rnaturalearth", "data.table",
+neededPackages = c("leaflet", "htmltools", "readxl", "dplyr", "tidyverse", "raster", "sf", "foreign", "sp", "rnaturalearth", 
+                   "data.table",
                    "rgdal", "leaflet", "readstata13", "ggspatial",
-                   "rlist", "velox", "parallel", "foreach", "iterators", "doParallel", "xlsx") # + lwgeom
+                   "rlist", "velox", "parallel", "foreach", "iterators", "doParallel", "readxl", "writexl") # + lwgeom
 allPackages    = c(neededPackages %in% installed.packages()[ , "Package"]) 
 
 # Install packages (if not already installed) 
@@ -23,9 +24,10 @@ library(htmltools)
 
 setwd("C:/Users/GUYE/Desktop/opalval/build/input/mill_geolocalization")
 
-
-
 indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
+
+
+
 
 ### Edition of pictures of deforestation and pictures of price spatial heterogeneity, for one cross-section, say 2010
 ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/output/IBS_mills_final.dta")
@@ -104,30 +106,47 @@ plot(st_geometry(ibs_20km[1,]))
 
 
 #################################
+#### check that close coordinates pointing at the same mill have not been matched with two different firm_id. 
 ibs <- read.dta13("IBS_mills_geolocalized.dta")
-ibs$X <- ibs$lon
-ibs$Y <- ibs$lat
-ibs <- st_as_sf(ibs, coords = c("lon", "lat"), crs = 4326)
-ibs_prj <- st_transform(ibs, crs = indonesian_crs )
-
-ibst <- st_buffer(ibs_prj, dist = 500)
+ibs <- st_as_sf(ibs, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+ibs <- st_transform(ibs, crs = indonesian_crs )
+ibs %>% st_geometry() %>% plot() 
+ibst <- st_buffer(ibs, dist = 500)
 
 m <- st_intersects(ibst)
 ibst <- st_transform(ibst, crs = 4326)
-n <- m[lengths(m)>1]
+n <- m[lengths(m)>1] %>% unique()
 
-ibs_unref <- st_read("ibs_unref")
-ibs_unref <- st_transform(ibs_unref, crs = 4326)
+ibst$firm_id[n[[6]]]
+
+look <- ibst$geometry[n[[6]]]
+
+look%>% 
+  leaflet() %>% 
+  addTiles()%>%
+  addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
+  addPolygons(opacity = 0.5, color = "red", weight = 2, fill = FALSE)
+
 
 # UML DATA
-uml <- read_excel("traseMills_capEstyear.xlsx") 
-uml <- dplyr::select(uml, trase_code, parent_co, mill_name, est_year, latitude, longitude)
+uml <- read_excel("mills_20200129.xlsx")
+names(uml)
 uml$latitude <- as.numeric(uml$latitude)
 uml$longitude <- as.numeric(uml$longitude)
 uml$lat <- uml$latitude
 uml$lon <- uml$longitude
 uml <- st_as_sf(uml,	coords	=	c("longitude",	"latitude"), crs = 4326)
 uml <- st_transform(uml, crs = 4326)
+ibst %>% st_crs()
+
+# uml <- read_excel("traseMills_capEstyear.xlsx") 
+# uml <- dplyr::select(uml, trase_code, parent_co, mill_name, est_year, latitude, longitude)
+# uml$latitude <- as.numeric(uml$latitude)
+# uml$longitude <- as.numeric(uml$longitude)
+# uml$lat <- uml$latitude
+# uml$lon <- uml$longitude
+# uml <- st_as_sf(uml,	coords	=	c("longitude",	"latitude"), crs = 4326)
+# uml <- st_transform(uml, crs = 4326)
 
 # LEAFLET ESRI WORLD IMAGERY REQUIRES GEODESIC COORDINATES.
 # st_transform alone IS NOT SUFFICIENT, ONE NEEDS TO FIRST CHANGE SRC. 

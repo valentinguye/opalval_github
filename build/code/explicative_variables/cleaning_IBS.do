@@ -19,9 +19,6 @@
 Over all the process, imp1 variables are associated with stronger imputations than imp2. 
 It is to say that imp1 sample will be more modified than imp2, in an attempt to reduce noise.
   
-
-  CURRENT VERSION IS DRAFT; UPDATING FOR THE NEW IBS.1998, THAT HAS ONLY VARIABLES FROM IO AND SOME ADDITIONAL VARIABLES FROM ROTHENBERG (si_panel) AND 
-  THE ORIGINAL SENDINGS FROM IBS (GATHERED AND WITH IMP VERSIONS, IN IBS_final_panel)
 */
 
 ***** FIRST AND LAST YEAR ***** 
@@ -46,6 +43,7 @@ bys firm_id (year): egen min_year = min(year)
 bys firm_id (year): egen max_year = max(year)
 order max_year, after(year)
 order min_year, after(year)
+
 drop if year < 1998 
 
 sort firm_id year 

@@ -54,6 +54,9 @@ setwd(here("/build/input"))
 #### define parcel size ####
 PS <- 10000
 
+#### define buffer size for the catchment areas  ####
+BS <- 40000
+
 #### Define projection ####
 #   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
 #   the Cylindrical Equal Area projection seems appropriate for Indonesia extending east-west along equator. 
@@ -71,16 +74,28 @@ years <- seq(from = 1998, to = 2015, by = 1)
 # In other words, it's easier to join later economic and land use attributes of these same parcels, rather than compute economic attributes
 # again for every deforestation year and definition. 
 
-parcels <- raster("./outcome_variables/annual_parcels/parcels_25th_1.tif")
+# parcels_template <- raster("./outcome_variables/annual_parcels/parcels_25th_1.tif")
+# 
+# 
+# parcels_template <- rasterToPoints(parcels_template, spatial = TRUE) %>% st_as_sf()
+# 
+# # append an id variable
+# parcels_template$parcel_id <- seq(from = 1, to = nrow(parcels_template), by = 1)
+# 
+# # get rid of the land use variable 
+# parcels_template <- dplyr::select(parcels_template, parcel_id)
 
+
+####################################
+# rather import the parcels from the panel saved in build_parcels_df.R.
+parcels_centro <- readRDS(paste0("./outcome_variables/panel_parcels_",PS/1000,"km_",BS/1000,"CA_","25th.Rdata"))
+# keep only one cross-section
+parcels_centro <- filter(parcels_centro, year == 1998)
 # turn it into a sf object
-parcels <- rasterToPoints(parcels, spatial = TRUE) %>% st_as_sf()
+parcels_centro <- st_as_sf(parcels_centro, coords = c("lon", "lat"), remove = FALSE, crs = indonesian_crs)
+parcels_centro <- dplyr::select(parcels_centro, parcel_id, geometry)
 
-# append an id variable
-parcels$parcel_id <- seq(from = 1, to = nrow(parcels), by = 1)
-
-# get rid of the land use variable 
-parcels <- dplyr::select(parcels, -parcels_25th_1)
+####################################
 
 
 #### PREPARE IBS DATA #### 
@@ -124,21 +139,20 @@ make_cs_w_averages <- function(t){
 
 ## Attribute to each parcel centroid the sf data frame of reachable mills 
 
-# this is a data frame of pairs of parcel and mill points that are within distance of 40km
+# this is a data frame of pairs of parcel and year t mill points that are within distance of 40km
 # ***the geometry kept is from x ***
-d <- st_join(x = parcels, y = ibs_cs[[t]], join = st_is_within_distance, dist = 40000, left = F)
-#b <- st_join(x =ibs_cs[[1]], y =  parcels, join = st_is_within_distance, dist = 40000, left = F)
+d <- st_join(x = parcels_centro, y = ibs_cs[[t]], join = st_is_within_distance, dist = BS, left = F)
 
 # nest the sets of reachable mills within each parcel row.
 # they need to be no sf object for that. 
 d <- st_set_geometry(d, NULL)
-parcels <- nest_join(parcels, d, 
+parcels <- nest_join(parcels_centro, d, 
                              by = "parcel_id", 
                              keep = T, # keep = T garde parcel_id dans les df nested. 
-                             name = "reachable") %>% st_as_sf()
+                             name = "reachable") %>% st_as_sf() # (bc the nest_join removes the sf class)
 rm(d)
 
-# select non empty reachable data frames (data frames of reachable mills) - programing purpose
+# select non empty reachable nested data frames (data frames of reachable mills) - programing purpose
 s <- sapply(parcels$reachable, FUN = nrow)>0
 
 # compute the number of reachable mills at each parcel - informative purpose
@@ -171,16 +185,16 @@ for(i in parcels$parcel_id[s]){
                                                            w = 1/distance)
 }
 
-#variables <- c("cpo_price_imp1","cpo_price_imp2", "prex_cpo_imp1", "prex_cpo_imp2")
+variables <- c("cpo_price_imp1","cpo_price_imp2", "prex_cpo_imp1", "prex_cpo_imp2")
  # Define the variables of interest we want to compute the weighted averages of. 
- variables <- c("min_year", "startYear", "max_year",
-                "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
-                "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
-                "prex_cpo_imp1", "prex_cpo_imp2",
-                "pko_price_imp1","pko_price_imp2", "out_ton_pko_imp1", "out_ton_pko_imp2", "out_val_pko_imp1", "out_val_pko_imp2",
-                "prex_pko_imp1", "prex_pko_imp2",
-                "export_pct_imp", "revenue_total", "workers_total_imp3",
-                "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp")
+# variables <- c("min_year", "startYear", "max_year",
+#                 "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
+#                 "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
+#                 "prex_cpo_imp1", "prex_cpo_imp2",
+#                 "pko_price_imp1","pko_price_imp2", "out_ton_pko_imp1", "out_ton_pko_imp2", "out_val_pko_imp1", "out_val_pko_imp2",
+#                 "prex_pko_imp1", "prex_pko_imp2",
+#                 "export_pct_imp", "revenue_total", "workers_total_imp3",
+#                 "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp")
 
 # make the variable specific sum of the inverse of distance over all the reachable mills that have no missing on this variable.
 for(voi in variables){
@@ -244,7 +258,7 @@ return(parcels)
 # toc()
 
 
-#### Build the parallel-looping function ####
+### Build the parallel-looping function ####
 
 w_averages_parallel <- function(detected_cores){
   
@@ -255,22 +269,22 @@ w_averages_parallel <- function(detected_cores){
   foreach(t = 1:length(years), 
           .combine = cbind,
           #.multicombine = TRUE not necessary because with cbind the default multicombine is TRUE anyways
-          .export = c("make_cs_w_averages", "parcels", "ibs_cs", "years", "indonesian_crs"), 
+          .export = c("make_cs_w_averages", "parcels_centro", "ibs_cs", "years", "BS", "indonesian_crs"), 
           .packages = c("sf", "raster", "tidyverse")) %dopar% 
     make_cs_w_averages(t) # the function that is parallelly applied to different years. 
 }
 
 ### And run it
 tic()
-wide_parcels <- w_averages_parallel(detectCores()-1)
+wide_parcels <- w_averages_parallel(detectCores())
 toc()
 
-# manage duplicates of parcel_id variables over years
+# manage repetitions of parcel_id variables over years
 wide_parcels$parcel_id <- seq(from = 1, to = nrow(wide_parcels), by = 1)
 wide_parcels <- dplyr::select(wide_parcels, parcel_id, everything())
 wide_parcels <- dplyr::select(wide_parcels, -starts_with("parcel_id."))  
 
-saveRDS(wide_parcels, file = paste0("./wa_wide_panel_parcels_",PS/1000,"km_th.Rdata"))
+saveRDS(wide_parcels, file = paste0("./wa_wide_panel_parcels_",PS/1000,"km_",BS/1000,"CA.Rdata"))
 
 # reshape to long 
 varying_vars <- wide_parcels %>% dplyr::select(-parcel_id) %>% colnames()
@@ -289,7 +303,7 @@ rm(varying_vars)
 
 long_parcels <- dplyr::arrange(long_parcels, parcel_id, year)
 
-saveRDS(long_parcels, file = paste0("./wa_panel_parcels_",PS/1000,"km_th.Rdata"))
+saveRDS(long_parcels, file = paste0("./wa_panel_parcels_",PS/1000,"km_",BS/1000, "CA.Rdata"))
 
 
 
@@ -303,25 +317,86 @@ saveRDS(long_parcels, file = paste0("./wa_panel_parcels_",PS/1000,"km_th.Rdata")
 
 
 
+################################################################################################################
+#### TEST ZONE ####
+
+#long panel and parcels in it that never have a reachable mill though... 
+lp <- readRDS(paste0("./wa_panel_parcels_",PS/1000,"km_",BS/1000, "CA.Rdata"))
+
+grp_unreached <- plyr::ddply(lp, "parcel_id", summarise, 
+                       unreached = sum(n_reachable_ibs) == 0)
+
+lp <- merge(lp, grp_unreached, by = "parcel_id")
+lp$parcel_id[lp$unreached == FALSE] %>% unique() %>% length()
+
+geop <- merge(parcels_template, grp_unreached, by = "parcel_id")
+
+geop$parcel_id[geop$unreached == TRUE] %>% unique() %>% length()
+geop_out <- geop[geop$unreached == TRUE,]
+geop_out %>% class()
+geop_out %>% ggplot() + geom_sf()
+
+
+wp <- readRDS(paste0("./wa_wide_panel_parcels_",PS/1000,"km_th.Rdata"))
+
+s_wp <- dplyr::select(wp, parcel_id, starts_with("n_reachable_ibs"))
+
+### plot tests
+time_means <- plyr::ddply(lp, "parcel_id", summarise, 
+                          tm_n_reachable_mills = mean(n_reachable_ibs, na.rm=T),
+                            tm_cpo_price_imp1 = mean(wa_cpo_price_imp1, na.rm=T),
+                            tm_cpo_price_imp2 = mean(wa_cpo_price_imp2, na.rm=T),
+                          tm_cpo_prex_imp1 = mean(wa_prex_cpo_imp1, na.rm=T),
+                          tm_cpo_prex_imp2 = mean(wa_prex_cpo_imp2, na.rm=T))
+
+time_means <- merge(parcels_centro, time_means, by = "parcel_id")
+lp <- left_join(long_parcels, parcels_centro, by = "parcel_id") 
+lp <- lp %>% st_as_sf()
+plot(time_means[,"tm_cpo_price_imp1"])
+plot(time_means[,"tm_n_reachable_mills"])
+
+plot(lp[lp$year == 1998,"wa_cpo_price_imp1"])
+plot(lp[lp$year == 2014 & lp$parcel_id < 100,"wa_cpo_price_imp1"])
+
+plot(lp[lp$year == 1998,"n_reachable_ibs"])
+plot(lp[lp$year == 2015,"n_reachable_ibs"])
+
+names(lp)
+plot()
+lp <- unique(lp)
+
+ggplot() + geom_sf(data = parcels[,], col = 'red')  
+
+geom_sf(data = total_ca40)+ 
 
 
 
+long_parcels$parcel_id[long_parcels$unreached == FALSE] %>% unique() %>% length()
+
+parcels$parcel_id[long_parcels$unreached == FALSE] %>% unique() %>% length()
+
+
+buffers_total_50km <- total_ca40
+plot(total_ca40, add = TRUE)
+plot(mills_ca40)
+plot(parcels[parcels$parcel_id == 1:19,], add = T, col = "red")
+
+parcels_template[1:19,] %>% st_geometry() %>% plot(col = "red")
+parcels_template[1:19,] %>% plot()
+
+fp <- parcels[1:19,] %>% st_geometry()
+
+ggplot() + geom_sf(data = total_ca40)+ geom_sf(data = parcels[,], col = 'red')  
 
 
 
+mapping = aes(total_ca40$x)
 
+total_ca40 %>% plot()
 
+parcels %>% class()
 
-
-
-
-
-
-
-
-
-
-
+total_ca40 %>% st_crs()
 
 
 
