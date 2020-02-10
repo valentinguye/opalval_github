@@ -117,7 +117,8 @@ m <- st_intersects(ibst)
 ibst <- st_transform(ibst, crs = 4326)
 n <- m[lengths(m)>1] %>% unique()
 
-ibst$firm_id[n[[6]]]
+
+ibst$firm_id[n[[1]]]
 
 look <- ibst$geometry[n[[6]]]
 

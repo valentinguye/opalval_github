@@ -153,6 +153,10 @@ rename latitude lat
 rename longitude lon
 destring lat, replace
 destring lon, replace
+* they are replaced as double. Let us round these coordinates, so that we can match them more easily in the merges that follow.
+replace lat = round(lat, 0.001) 
+replace lon = round(lon, 0.001) 
+
 codebook trase_code
 save "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", replace 
 
@@ -162,6 +166,13 @@ rename latitude lat
 rename longitude lon
 destring lat, replace
 destring lon, replace
+replace lat = round(lat, 0.001) 
+replace lon = round(lon, 0.001) 
+/*
+duplicates tag lat lon, generate(latlon_du)
+browse if latlon == 1
+*/
+duplicates drop lat lon, force 
 codebook trase_code
 save "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", replace 
 
@@ -199,7 +210,7 @@ save "$base_path_wd\build\input\mill_geolocalization\matching_unref\md_millMatch
 
 
 ***merge everything 
-* (md_millMatching i.e. unref later) 
+* (md_millMatching (i.e. unref) later) 
 use "$base_path_wd\build\output\IBS_PO_98_15_cleaned.dta", clear
 sort firm_id year
 
@@ -506,9 +517,6 @@ cpo_price_imp2 out_ton_pko out_ton_pko_imp2 out_val_pko out_val_pko_imp2 pko_pri
 if firm_id == 2119 | firm_id == 52344
 */
 sort firm_id year 
-
-
-
 /*
 *check these conflicting cases after the manual modifications
 
@@ -528,7 +536,6 @@ sort mill_name firm_id year
 browse firm_id year workers_total_imp3 district_name kec_name village_name  mill_name parent_co lat lon ///
 merge_oto merge_noto merge_pre2011 merge_post2010 du_mill_name du_firm_id_mill_name if du_mill_name != du_firm_id_mill_name
 */
-
 
 
 
@@ -578,6 +585,21 @@ order firm_id, before(year)
 sort firm_id year 
 
 ** Handle cases where several firm_id we found to actually refer to the same mill (the firm_id changed over time)
+/*
+Code used to spot them
+*drop n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du
+
+bys mill_name: egen n_dif_id_per_mill_name = nvals(firm_id)
+gen name_du = n_dif_id_per_mill_name > 1 & !mi(mill_name) 
+codebook firm_id if name_du == 1
+
+bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
+gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
+codebook firm_id if coord_du == 1
+
+sort mill_name firm_id year 
+browse if name_du == 1 | coord_du == 1 
+*/
 
 /*
 50450 56305 are likely one same mill (the last year of the former is the first year of the latter, both with 1828 workers). 
@@ -591,9 +613,11 @@ replace firm_id = 50450 if firm_id == 56305
 * 68951 has only one record in 2008 that matches workers and kecamatan of SURYA RAYA LESTARI II PT in 2009 MD. 
 replace firm_id = 68951 if firm_id == 69449
 
+
+
 ** and handle new conflicts arising from new matches made through the overall conflict resolution. 
 
-* 76306 matches only one number of workers vs. 2 for 70386
+/* 76306 matches only one number of workers vs. 2 for 70386 */
 replace mill_name = "" if firm_id == 76306
 replace lat = . if firm_id == 76306
 replace lon = . if firm_id == 76306
@@ -619,35 +643,10 @@ replace lon = 103.2653722 if firm_id == 69008
 replace trase_code = "M-00551" if firm_id == 69008
 
 
+** conflicts found from intersections of 500m buffers around coordinates. 
 
-*** ATTENTION mill_name does not identify uniquely firm_id! There is PT. Torganda for instance (and non UML don't always have a name anyways)
-
-/*
-*drop n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du
-
-bys mill_name: egen n_dif_id_per_mill_name = nvals(firm_id)
-gen name_du = n_dif_id_per_mill_name > 1 & !mi(mill_name) 
-codebook firm_id if name_du == 1
-
-bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
-gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
-codebook firm_id if coord_du == 1
-
-sort mill_name firm_id year 
-browse if name_du == 1 | coord_du == 1 
-*/
-
-** remake min_year variables (to update for firm_id changes)
-sort firm_id year 
-bys firm_id: egen minmin_year = min(min_year)
-drop min_year 
-rename minmin_year min_year
-
-
-* PUIS LE TEST ST8INTERSECT ENTRE LES NON TRASE_CODE ET TOUTES LES UML 
-
-/*
-40139 matches better in workers and location with Sei Pagar than 70397
+* 40139 70397
+/* 40139 matches better in workers and location with Sei Pagar than 70397
 70397 was thought to be Sei Pagar because it had one n-1 worker match in MD. 
 But actually it is more likely that it is GANDA BUANINDO PT now that we look at all possible MD for all ibs years (then it matches 
 on 2 different numbers of workers, in three years.)
@@ -662,25 +661,27 @@ replace lon = 101.2395325 if firm_id == 70397
 
 * 44993 55831 are actually two separate mills from imagery! 
 
-* 51385 76247 look like the same mill: 76247 is just the 2015 record, with the same number of workers as years before in 51385, and matching to only 
-* MD mill, the same 51385 matches with, and that has been matched in md_millMatching to M-00422
+* 51385 76247 
+/* look like the same mill: 76247 is just the 2015 record, with the same number of workers as years before in 51385, and matching to only 
+MD mill, the same 51385 matches with, and that has been matched in md_millMatching to M-00422 */
 replace mill_name = "PT. Langkat Nusantara Kepong" if firm_id == 76247
 replace parent_co = "PT Langkat Nusantara Kepong" if firm_id == 76247
 replace trase_code = "M-00422" if firm_id == 76247
 replace lat = 3.560677077563 if firm_id == 76247
 replace lon = 98.39074238997 if firm_id == 76247
 
-* 56377 67238: it does not look like they refer to the same mill for 2007 record, because they each have different cpo info. 
-* and 56377 is a slightly better match with AGRO MITRA MADANIsince this is PT. Agrowiyana according to Jason (md_millMatching)
-* and the desa (Brasau) reported in IBS by 56377 straight next to this mill's location. 
+* 56377 67238 
+/* it does not look like they refer to the same mill for 2007 record, because they each have different cpo info. 
+and 56377 is a slightly better match with AGRO MITRA MADANIsince this is PT. Agrowiyana according to Jason (md_millMatching)
+and the desa (Brasau) reported in IBS by 56377 straight next to this mill's location. */
 replace mill_name = "" if firm_id == 67238
 replace parent_co = "" if firm_id == 67238
 replace trase_code = "" if firm_id == 67238
 replace lat = . if firm_id == 67238
 replace lon = . if firm_id == 67238
 
-/* 69489 71626
-The argument that was used to geolocalize 71626 was (from mills_to_georeference_post2010.xlsx) was: 
+* 69489 71626
+/* The argument that was used to geolocalize 71626 was (from mills_to_georeference_post2010.xlsx) was: 
 "Match found in directory but not in ref_mills. Mill name and coordinates from google maps (looking around desa rondaman lombang)."
 Which makes it a weaker candidate than 69489 that matches on three numbers of workers and on village location
 */
@@ -691,7 +692,7 @@ replace lat = . if firm_id == 71626
 replace lon = . if firm_id == 71626
 
 *browse if mill_name == "PT. Ganda Buanindo"
-
+/*
 browse firm_id year workers_total_imp3 district_name kec_name village_name trase_code lat lon mill_name parent_co  ///
 merge_oto merge_noto merge_pre2011 merge_post2010 unref merge_unref_geo   ///
 export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp ///
@@ -712,21 +713,55 @@ export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp
 
 * 1760 I don't understand where this mill_name comes from; 
 * 3783 matches Lembah Krya PT in MD 2006.  But not in UML 
-
-* RESTE A GERER L'HARMONISATION DE QUI A RECU QUELLE INFO D'UML COMMENT (i.e. revoir tout ce script)
-
+*/
 
 
-/* Add more informative variables.  
-* And add other UML info to all ibs firms that were matched to UML. 
-*merge m:1 trase_code using "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", nogenerate keepusing( active uml_id)
-*** add to all these geolocalized ibs mills their trase_code and est_year variables from traseMills_capEstyear
-merge m:1 lat lon using "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", generate(merge_heilmayr) keepusing(trase_code est_year) update 
-drop if merge_heilmayr == 2
+
+
+/* Add more informative variables. 
+* ATTENTION mill_name does not identify uniquely firm_id! There is PT. Torganda for instance (and non UML don't always have a name anyways)
+
+* donc là on en a 151 qui ont un trase_code depuis mill_mdMatching, de base. 
+Puis 8 qui ont été ajoutés manuellement dans overall_btw_conflicts
+Puis +3 avec les changements manuels dans la résolution des nouveaux conflits générés (ceux à qui on enlève n'en ont pas en fait)
+Puis avec le merge_trase_code on ajoute le trase_code à 295 firm_id. 
+
+Le truc préocuppant c'est les 1602 observations qui avaient déjà un trase_code avant le merge et qui ne matchent pas sur lon lat avec traseMills_capEstyear  
+Ca doit être des légères différences (liées à des conservation ou non de doubles à des moments.
+Therefore we need to the merge keys lat lon to be rounded)
 */
 codebook firm_id if !mi(trase_code)
+gen nm_tc = !mi(trase_code)
 codebook firm_id if !mi(lat)
- 
+* add to all these geolocalized ibs mills their trase_code and est_year variables from traseMills_capEstyear
+
+* it's important to merge traseMills_capEstyear because this is the source of the coordinates in manual works. 
+replace lat = round(lat, 0.001) 
+replace lon = round(lon, 0.001) 
+
+merge m:1 lat lon using "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", generate(merge_trase_code) keepusing(trase_code est_year) update 
+drop if merge_trase_code == 2
+tab merge_trase_code nm_tc
+/*those that already have a trase_code but though don't match with traseMills_capEstyear are those with a recent trase_code, 
+or Suryaraya Lestari 2 coordinates from traseMills_capEstyear which are wrong. 
+*/
+
+merge m:1 lat lon using "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", generate(merge_trase_code2) keepusing(trase_code active uml_id) update 
+drop if merge_trase_code2 == 2
+
+codebook firm_id if !mi(trase_code)
+codebook firm_id if !mi(lat)
+codebook firm_id if !mi(uml_id)
+* ON EN EST LA
+* RESTE A GERER L'HARMONISATION DE QUI A RECU QUELLE INFO D'UML COMMENT (i.e. revoir tout ce script)
+
+* PUIS LE TEST ST8INTERSECT ENTRE LES NON TRASE_CODE ET TOUTES LES UML  
+
+** remake min_year variables (to update for firm_id changes)
+sort firm_id year 
+bys firm_id: egen minmin_year = min(min_year)
+drop min_year 
+rename minmin_year min_year
 
 * send to exploratory data analysis. 
 save "$base_path_wd\build\output\IBS_mills_final.dta", replace
