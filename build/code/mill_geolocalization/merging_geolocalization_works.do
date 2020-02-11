@@ -28,7 +28,8 @@ ssc inst egenmore
 
 ** noto
 import excel "$base_path_wd\build\input\mill_geolocalization\noto_done.xls", sheet("Sheet1") firstrow clear
-
+destring lat, replace
+destring lon, replace
 * also, in case the excel sheet produces new empty lines: 
 drop if mi(firm_id)
 sort firm_id year 
@@ -64,6 +65,8 @@ save "$base_path_wd\build\input\mill_geolocalization\noto_done.dta", replace
 import excel "$base_path_wd\build\input\mill_geolocalization\mills_to_georeference_pre2011_done.xlsx", sheet("Mills to georef") firstrow clear
 rename latitude lat
 rename longitude lon
+destring lat, replace
+destring lon, replace
 drop if mi(firm_id)
 
 *drop those that could not be geolocalized (remember that some obs. - in green in excel basically - have coordinates but no names
@@ -92,7 +95,7 @@ across firm_id there is one duplicated mill_name (BONANZA MEGAH LTD, PT) and the
 */
 
 save "$base_path_wd\build\input\mill_geolocalization\mills_to_georeference_pre2011_done.dta", replace 
-/*that's 38 mills with coordinates + 14 with names only (
+/*that's 38 mills with coordinates + 14 with names only ( 
 SEGAR KEMBANG SEJATI, PT 
 SEI SEKALA 
 LEMBAH KRYA, PT 
@@ -115,6 +118,8 @@ import excel "$base_path_wd\build\input\mill_geolocalization\mills_to_georeferen
 sort firm_id year
 rename latitude lat
 rename longitude lon
+destring lat, replace
+destring lon, replace
 drop if mi(firm_id)
 
 *drop those that could not be geolocalized or obs. of geolocalized mills for which the info was not written
@@ -554,11 +559,11 @@ save "$base_path_wd\build\input\mill_geolocalization\merge_geoloc_works_temp.dta
 
 bys mill_name: egen n_dif_id_per_mill_name = nvals(firm_id)
 gen name_du = n_dif_id_per_mill_name > 1 & !mi(mill_name) 
-codebook firm_id if name_du == 1
+*codebook firm_id if name_du == 1
 
 bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
 gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
-codebook firm_id if coord_du == 1
+*codebook firm_id if coord_du == 1
 
 *** the overall conflict resolution is made manually in an excel spreadsheet 
 keep if name_du == 1 | coord_du == 1
@@ -569,7 +574,7 @@ using "C:\Users\GUYE\Desktop\opalval\build\input\mill_geolocalization\overall_bt
 
 *** merge it back with the full panel
 
-** turn the spreadsheet used to resolve overall between conflicts into a .dta 
+** introduce the spreadsheet used to resolve overall between conflicts into a .dta 
 import excel "$base_path_wd\build\input\mill_geolocalization\overall_btw_conflicts_done.xlsx", firstrow clear  
 destring lat lon, replace dpcomma
 
@@ -578,13 +583,14 @@ destring lat lon, replace dpcomma
 
 *keep only the merging key variables and the variables that have been modified manually and hence that we don't want to update
 keep firm_id year mill_name parent_co lat lon trase_code 
+
 * this merge keeps unchanged the above variables for this block of obs., and adds all the rest of the panel. 
 merge 1:1 firm_id year using "$base_path_wd\build\input\mill_geolocalization\merge_geoloc_works_temp.dta", generate(merge_overall_cfl) 
 order year, before(mill_name)
 order firm_id, before(year)
 sort firm_id year 
 
-** Handle cases where several firm_id we found to actually refer to the same mill (the firm_id changed over time)
+** Handle cases where several firm_id were found to actually refer to the same mill (the firm_id changed over time)
 /*
 Code used to spot them
 *drop n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du
@@ -662,13 +668,14 @@ replace lon = 101.2395325 if firm_id == 70397
 * 44993 55831 are actually two separate mills from imagery! 
 
 * 51385 76247 
-/* look like the same mill: 76247 is just the 2015 record, with the same number of workers as years before in 51385, and matching to only 
+/* look like the same mill: 76247 is just the 2015 record, with the same number of workers as years before in 51385, and matching to only one
 MD mill, the same 51385 matches with, and that has been matched in md_millMatching to M-00422 */
 replace mill_name = "PT. Langkat Nusantara Kepong" if firm_id == 76247
 replace parent_co = "PT Langkat Nusantara Kepong" if firm_id == 76247
 replace trase_code = "M-00422" if firm_id == 76247
 replace lat = 3.560677077563 if firm_id == 76247
 replace lon = 98.39074238997 if firm_id == 76247
+replace firm_id = 51385 if firm_id == 76247
 
 * 56377 67238 
 /* it does not look like they refer to the same mill for 2007 record, because they each have different cpo info. 
@@ -691,30 +698,6 @@ replace trase_code = "" if firm_id == 71626
 replace lat = . if firm_id == 71626
 replace lon = . if firm_id == 71626
 
-*browse if mill_name == "PT. Ganda Buanindo"
-/*
-browse firm_id year workers_total_imp3 district_name kec_name village_name trase_code lat lon mill_name parent_co  ///
-merge_oto merge_noto merge_pre2011 merge_post2010 unref merge_unref_geo   ///
-export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp ///
- ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 ///
- cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 ///
- pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 ///
- if firm_id == 69489  | firm_id == 71626
-
-
-* alors il y a eu à gérer 
-browse firm_id year mill_name ///
-merge_oto merge_noto merge_pre2011 merge_post2010 unref merge_unref_geo workers_total_imp3 district_name kec_name village_name ///
-export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp ///
- ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 ///
- cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 ///
- pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 ///
- if !mi(mill_name) & mi(lat)
-
-* 1760 I don't understand where this mill_name comes from; 
-* 3783 matches Lembah Krya PT in MD 2006.  But not in UML 
-*/
-
 
 
 
@@ -725,23 +708,20 @@ export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp
 Puis 8 qui ont été ajoutés manuellement dans overall_btw_conflicts
 Puis +3 avec les changements manuels dans la résolution des nouveaux conflits générés (ceux à qui on enlève n'en ont pas en fait)
 Puis avec le merge_trase_code on ajoute le trase_code à 295 firm_id. 
-
-Le truc préocuppant c'est les 1602 observations qui avaient déjà un trase_code avant le merge et qui ne matchent pas sur lon lat avec traseMills_capEstyear  
-Ca doit être des légères différences (liées à des conservation ou non de doubles à des moments.
-Therefore we need to the merge keys lat lon to be rounded)
 */
 codebook firm_id if !mi(trase_code)
-gen nm_tc = !mi(trase_code)
+*gen nm_tc = !mi(trase_code)
 codebook firm_id if !mi(lat)
 * add to all these geolocalized ibs mills their trase_code and est_year variables from traseMills_capEstyear
 
-* it's important to merge traseMills_capEstyear because this is the source of the coordinates in manual works. 
+* It is necessary to round coordinates to match them (some decimals have been lost for some reason (manual work or data wrangling) 
+* and therefore reduce the number of matches on coordinates.  
 replace lat = round(lat, 0.001) 
 replace lon = round(lon, 0.001) 
 
 merge m:1 lat lon using "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", generate(merge_trase_code) keepusing(trase_code est_year) update 
 drop if merge_trase_code == 2
-tab merge_trase_code nm_tc
+*tab merge_trase_code nm_tc
 /*those that already have a trase_code but though don't match with traseMills_capEstyear are those with a recent trase_code, 
 or Suryaraya Lestari 2 coordinates from traseMills_capEstyear which are wrong. 
 */
@@ -749,30 +729,147 @@ or Suryaraya Lestari 2 coordinates from traseMills_capEstyear which are wrong.
 merge m:1 lat lon using "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", generate(merge_trase_code2) keepusing(trase_code active uml_id) update 
 drop if merge_trase_code2 == 2
 
+sort firm_id year
+
 codebook firm_id if !mi(trase_code)
 codebook firm_id if !mi(lat)
 codebook firm_id if !mi(uml_id)
-* ON EN EST LA
-* RESTE A GERER L'HARMONISATION DE QUI A RECU QUELLE INFO D'UML COMMENT (i.e. revoir tout ce script)
 
-* PUIS LE TEST ST8INTERSECT ENTRE LES NON TRASE_CODE ET TOUTES LES UML  
+
+*** Firms that were manually geolocalized and have no UML mill within 1km. 
+* (this is spotted in spatial_routines.R)
+* 1763 was indeed not in UML, Jason has added it (cf his email)
+* 4782 is a refinery 
+replace mill_name = "" if firm_id == 4782
+replace parent_co = "" if firm_id == 4782
+replace lat = . if firm_id == 4782
+replace lon = . if firm_id == 4782
+
+* 4783 is a refinery 
+replace mill_name = "" if firm_id == 4783
+replace parent_co = "" if firm_id == 4783
+replace lat = . if firm_id == 4783
+replace lon = . if firm_id == 4783
+
+* 40024 is a refinery 
+replace mill_name = "" if firm_id == 40024
+replace parent_co = "" if firm_id == 40024
+replace lat = . if firm_id == 40024
+replace lon = . if firm_id == 40024
+
+* 66897 is a refinery 
+replace mill_name = "" if firm_id == 66897
+replace parent_co = "" if firm_id == 66897
+replace lat = . if firm_id == 66897
+replace lon = . if firm_id == 66897
+
+* 68193 is actually a mill; it has little ibs info. 
+* 72948 is actually a mill, the comment from mills_to_georeference_post2010 is 
+/*
+match in 2014 directory (and still present in 2015 with still 131 workers). 
+coordinates found with google maps following a search for Perk. Simpang Gambir, the name of the desa given in the directory, leading to this photo: 
+https://www.google.com/maps/place/Perk.+Simpang+Gambir,+Lingga+Bayu,+Kabupaten+de+Mandailing+Natal,+Sumatra+du+Nord,+Indon%C3%A9sie/@0.5917666,99.3055242,3a,75y,90t/data=!3m8!1e2!3m6!1sAF1QipOdlj0PGQH9vTLKR4IKMiBcNGR3LNzHI0CAzMk1!2e10!3e12!6shttps:%2F%2Flh5.googleusercontent.com%2Fp%2FAF1QipOdlj0PGQH9vTLKR4IKMiBcNGR3LNzHI0CAzMk1%3Dw160-h120-k-no!7i1280!8i960!4m13!1m7!3m6!1s0x302a2d3dddda127f:0x8e3d68fb54b397d4!2sPerk.+Simpang+Gambir,+Lingga+Bayu,+Kabupaten+de+Mandailing+Natal,+Sumatra+du+Nord,+Indon%C3%A9sie!3b1!8m2!3d0.5888083!4d99.3506604!3m4!1s0x302a2d3dddda127f:0x8e3d68fb54b397d4!8m2!3d0.5888083!4d99.3506604
+*/
+
+* Firms without trase_code that have been given coordinates pointing at UML mills have been corrected for in their respective manual spreadsheets.
+
+*** Firms that have been given a name from MD but that could not be given coordinates. 
+/*
+gen no_coord = (mi(lat) & !mi(mill_name))
+keep if no_coord == 1
+keep firm_id year mill_name parent_co lat lon workers_total_imp3 ///
+merge_oto merge_noto merge_pre2011 merge_post2010 merge_unref_geo merge_overall_cfl merge_trase_code merge_trase_code2 /// 
+district_name kec_name village_name 
+
+export excel using "C:\Users\GUYE\Desktop\opalval\build\input\mill_geolocalization\names_but_no_coord_raw.xlsx", firstrow(variables) replace 
+
+browse firm_id year mill_name parent_co lat lon ///
+merge_oto merge_noto merge_pre2011 merge_post2010 merge_unref_geo merge_overall_cfl merge_trase_code merge_trase_code2 /// 
+district_name kec_name village_name if no_coord == 1
+
+1760 I don't understand where this mill_name comes from; 
+2035 idem
+3783 matches Lembah Krya PT in MD 2006.  But not in UML 
+... mostly refineries 
+*/
+
+
+*** homogenize mill and parent company names
+
+* Remove names of refineries or names that are mistakes. 
+replace mill_name = "" if firm_id == 1760
+replace mill_name = "" if firm_id == 2035
+replace mill_name = "" if firm_id == 4556
+replace mill_name = "" if firm_id == 10466
+replace mill_name = "" if firm_id == 10470
+replace mill_name = "" if firm_id == 10471
+replace mill_name = "" if firm_id == 18224
+replace mill_name = "" if firm_id == 33757
+replace mill_name = "" if firm_id == 34160
+replace mill_name = "" if firm_id == 43180
+replace mill_name = "" if firm_id == 51460
+replace mill_name = "" if firm_id == 60758
+replace mill_name = "" if firm_id == 71677
+replace mill_name = "" if firm_id == 72952
+
+* give the names from most recent UML to all obs. that have a trase_code 
+merge m:1 trase_code using "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", ///
+ generate(merge_uml_names) keepusing(mill_name parent_co lat lon) update replace 
+ drop if merge_uml_names == 2
+/* this also replaced all the coordinates, which are anyways the same in all cases but one, M-00455, where traseMills_capEstyear points to an older facility,
+while the more recent UML points to a more recent facility. */
+
+/*
+codebook trase_code 
+codebook mill_name 
+codebook mill_name if !mi(trase_code)
+codebook firm_id if !mi(trase_code) 
+codebook firm_id if !mi(lat)
+*/
+
+/* Test that there all firm_id have only one unique set of coordinates 
+*drop n_lat_per_firm lat_error
+bys firm_id: egen n_lat_per_firm = nvals(lat)
+gen lat_error = n_lat_per_firm > 1 & !mi(lat)
+codebook firm_id if lat_error == 1
+browse firm_id year lat lon lat_error if lat_error == 1
+
+* drop n_lon_per_firm lon_error
+bys firm_id: egen n_lon_per_firm = nvals(lon)
+gen lon_error = n_lon_per_firm > 1 & !mi(lon)
+codebook firm_id if lon_error == 1
+browse firm_id year lon lon lon_error if lon_error == 1
+*/
+
+* Test that all coordinates have only one firm_id 
+bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
+gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
+codebook firm_id if coord_du == 1
+browse firm_id year lon lat if coord_du == 1 
+drop n_dif_id_per_coord coord_du
+
+sort mill_name firm_id year 
+browse if name_du == 1 | coord_du == 1 
 
 ** remake min_year variables (to update for firm_id changes)
 sort firm_id year 
 bys firm_id: egen minmin_year = min(min_year)
 drop min_year 
 rename minmin_year min_year
+order min_year, after(year)
 
 * send to exploratory data analysis. 
 save "$base_path_wd\build\output\IBS_mills_final.dta", replace
 
 * send to outcome variables building in R: 
 keep if !mi(lat)
-keep firm_id year trase_code mill_name lat lon 
+keep firm_id year trase_code uml_id mill_name parent_co district_name kec_name village_name lat lon  
 duplicates drop firm_id, force
 save "$base_path_wd\build\input\mill_geolocalization\IBS_mills_geolocalized.dta", replace
 
-
+codebook no_uml
+codebook firm_id if !mi(trase_code)
+codebook trase_code
 
 
 

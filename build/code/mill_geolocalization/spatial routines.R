@@ -102,6 +102,45 @@ plot(st_geometry(ibs_20km[1,]))
 
 
 
+#################################
+#### check whether geolocalized ibs firms that don't have a trase_code actually point at UML mills. 
+ibs <- read.dta13("IBS_mills_geolocalized.dta")
+ibs <- st_as_sf(ibs, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+ibs <- st_transform(ibs, crs = indonesian_crs )
+ibs %>% st_geometry() %>% plot() 
+ibs <- ibs[ibs$no_uml == 1,]
+ibs <- st_buffer(ibs, dist = 500)
+
+uml <- read.dta13("mills_20200129.dta")
+uml <- st_as_sf(uml, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+uml <- st_transform(uml, crs = indonesian_crs )
+uml %>% st_geometry() %>% plot() 
+uml <- st_buffer(uml, dist = 500)
+
+m <- st_intersects(ibs, uml) 
+m
+# empty: the geolocalization is maybe original, recheck them individually
+# a number: the index in uml of the mill that is likely the same as the one found manually. They've all been corrected. 
+
+ibs[lengths(m)>0, c("mill_name", "parent_co")]
+uml[unlist(m), c("mill_name", "parent_co")]
+
+ibs[lengths(m)>0,][1,]
+uml[unlist(m)[1], ]
+
+ibs <- st_transform(ibs, crs = 4326)
+uml <- st_transform(uml, crs = 4326)
+
+look <- uml$geometry[unlist(m)[1]]
+
+look%>% 
+  leaflet() %>% 
+  addTiles()%>%
+  addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
+  addPolygons(opacity = 0.5, color = "red", weight = 2, fill = FALSE) %>% 
+  addPolygons(data = st_geometry(ibs[lengths(m)>0,][1,]), opacity = 0.5, color = "blue", weight = 2, fill = FALSE)
+
+
 
 
 
