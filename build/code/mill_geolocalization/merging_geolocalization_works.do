@@ -163,7 +163,7 @@ replace lat = round(lat, 0.001)
 replace lon = round(lon, 0.001) 
 
 codebook trase_code
-save "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", replace 
+save "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", replace 
 
 ** Heilmayr mill list (UML) - second version (2020)
 import excel "$base_path_wd\build\input\mill_geolocalization\mills_20200129.xlsx", firstrow clear
@@ -171,13 +171,22 @@ rename latitude lat
 rename longitude lon
 destring lat, replace
 destring lon, replace
+
+/* lat lon do not identify uniquely observations in this UML. 
+M-00299 and M-00722 have the same coordinates. 
+We could either drop one. 
+duplicates tag lat lon, generate(latlon_du)
+browse if latlon_du == 1
+duplicates drop lat lon, force 
+
+or replace with the coordinates in the former UML version, where they have different ones. 
+NO duplicates in the version from 12/02/2020
+*/
+
+* round coordinates
 replace lat = round(lat, 0.001) 
 replace lon = round(lon, 0.001) 
-/*
-duplicates tag lat lon, generate(latlon_du)
-browse if latlon == 1
-*/
-duplicates drop lat lon, force 
+
 codebook trase_code
 save "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", replace 
 
@@ -204,7 +213,7 @@ drop _merge
 
 * For those which were already found in the earlier version of UML, we prefer their parent_co and mill names because that's those that were used in the manual works
 * So this update replace replaces 147 mills' names, and the 4 unmatched from master are those mills that are only in latest version of UML
-merge 1:1 trase_code using "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", keepusing(trase_code parent_co mill_name) update replace 
+merge 1:1 trase_code using "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", keepusing(trase_code parent_co mill_name) update replace 
 drop if _merge == 2 
 drop _merge
 
@@ -227,11 +236,6 @@ merge m:1 firm_id using "$base_path_wd\build\input\mill_geolocalization\mills_to
 
 merge m:1 firm_id using "$base_path_wd\build\input\mill_geolocalization\mills_to_georeference_post2010_done.dta", generate(merge_post2010) keepusing(mill_name lat lon) update
 
-merge m:1 firm_id using "$base_path_wd\build\input\mill_geolocalization\ibs_unref.dta", generate(merge_unref)
-* (this one is just firm_id, the point is only to flage those mills that don't have coordinates yet but have a desa polygon)
-
-gen unref = (merge_unref == 3)
-drop merge_unref
 
 *** MANUAL WORK FOR CONFLICTING CASES WHERE DIFFERENT firm_id HAVE THE SAME MILL_NAME OR SAME COORDINATES
 
@@ -555,8 +559,13 @@ sort firm_id year
 *codebook firm_id if merge_unref_geo == 4
 save "$base_path_wd\build\input\mill_geolocalization\merge_geoloc_works_temp.dta", replace 
 
-** check the conflicts brought by this new wave of geolocalized mills
 
+
+
+*** the overall conflict resolution is made manually in an excel spreadsheet 
+
+** check the conflicts brought by this new wave of geolocalized mills
+/*
 bys mill_name: egen n_dif_id_per_mill_name = nvals(firm_id)
 gen name_du = n_dif_id_per_mill_name > 1 & !mi(mill_name) 
 *codebook firm_id if name_du == 1
@@ -565,12 +574,13 @@ bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
 gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
 *codebook firm_id if coord_du == 1
 
-*** the overall conflict resolution is made manually in an excel spreadsheet 
 keep if name_du == 1 | coord_du == 1
  sort mill_name firm_id year 
 export excel mill_name parent_co trase_code lat lon firm_id year min_year workers_total_imp3 district_name kec_name village_name     ///
 merge_oto merge_noto merge_pre2011 merge_post2010 merge_unref_geo n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du ///
 using "C:\Users\GUYE\Desktop\opalval\build\input\mill_geolocalization\overall_btw_conflicts.xlsx", firstrow(variables) replace 
+*/
+
 
 *** merge it back with the full panel
 
@@ -719,7 +729,7 @@ codebook firm_id if !mi(lat)
 replace lat = round(lat, 0.001) 
 replace lon = round(lon, 0.001) 
 
-merge m:1 lat lon using "$base_path_wd\build\input\traseMills_capEstyear_selected.dta", generate(merge_trase_code) keepusing(trase_code est_year) update 
+merge m:1 lat lon using "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", generate(merge_trase_code) keepusing(trase_code est_year) update 
 drop if merge_trase_code == 2
 *tab merge_trase_code nm_tc
 /*those that already have a trase_code but though don't match with traseMills_capEstyear are those with a recent trase_code, 
@@ -730,11 +740,6 @@ merge m:1 lat lon using "$base_path_wd\build\input\mill_geolocalization\mills_20
 drop if merge_trase_code2 == 2
 
 sort firm_id year
-
-codebook firm_id if !mi(trase_code)
-codebook firm_id if !mi(lat)
-codebook firm_id if !mi(uml_id)
-
 
 *** Firms that were manually geolocalized and have no UML mill within 1km. 
 * (this is spotted in spatial_routines.R)
@@ -763,13 +768,29 @@ replace parent_co = "" if firm_id == 66897
 replace lat = . if firm_id == 66897
 replace lon = . if firm_id == 66897
 
-* 68193 is actually a mill; it has little ibs info. 
-* 72948 is actually a mill, the comment from mills_to_georeference_post2010 is 
-/*
+/* 
+* 68193, MD name: PABRIK KELAPA SAWIT TEUPAH, found at 2.398 96.423
+The IBS shows input and output data for this facility for 2008 and 2009 and MD has info for this in 2009. 
+However, the mill you located looks to have only started to be constructed in 2010 according to: 
+https://www.infosawit.com/news/4042/semenjak-2010-pks-milik-kabupaten-simeulue-belum-rampung
+https://aceh.tribunnews.com/2016/01/27/polres-simeulue-akan-panggil-rekanan-pembangunan-pabrik-kelapa-sawit
+Also, the mill was never fully operational according to those articles as well. I can't find any other information based on the name of the facility in the MD though.
+*/
+replace mill_name = "" if firm_id == 68193
+replace parent_co = "" if firm_id == 68193
+replace lat = . if firm_id == 68193
+replace lon = . if firm_id == 68193
+
+/* 
+* 72948 is actually a mill, the comment from mills_to_georeference_post2010 is:
 match in 2014 directory (and still present in 2015 with still 131 workers). 
 coordinates found with google maps following a search for Perk. Simpang Gambir, the name of the desa given in the directory, leading to this photo: 
 https://www.google.com/maps/place/Perk.+Simpang+Gambir,+Lingga+Bayu,+Kabupaten+de+Mandailing+Natal,+Sumatra+du+Nord,+Indon%C3%A9sie/@0.5917666,99.3055242,3a,75y,90t/data=!3m8!1e2!3m6!1sAF1QipOdlj0PGQH9vTLKR4IKMiBcNGR3LNzHI0CAzMk1!2e10!3e12!6shttps:%2F%2Flh5.googleusercontent.com%2Fp%2FAF1QipOdlj0PGQH9vTLKR4IKMiBcNGR3LNzHI0CAzMk1%3Dw160-h120-k-no!7i1280!8i960!4m13!1m7!3m6!1s0x302a2d3dddda127f:0x8e3d68fb54b397d4!2sPerk.+Simpang+Gambir,+Lingga+Bayu,+Kabupaten+de+Mandailing+Natal,+Sumatra+du+Nord,+Indon%C3%A9sie!3b1!8m2!3d0.5888083!4d99.3506604!3m4!1s0x302a2d3dddda127f:0x8e3d68fb54b397d4!8m2!3d0.5888083!4d99.3506604
-*/
+
+UPDATE:
+Jason has added it to UML and it will thus be matched now. 
+ */
+
 
 * Firms without trase_code that have been given coordinates pointing at UML mills have been corrected for in their respective manual spreadsheets.
 
@@ -789,25 +810,45 @@ district_name kec_name village_name if no_coord == 1
 
 1760 I don't understand where this mill_name comes from; 
 2035 idem
-3783 matches Lembah Krya PT in MD 2006.  But not in UML 
-... mostly refineries 
+*/
+/* 3783 - Matched with 'LEMBAH KRYA, PT' from the MD that shows the product as Minyak Kelapa (Coconut oil), also no FFB input or CPO output in 
+the IBS_UML_panel.xlsx. 
+http://scholar.unand.ac.id/15586/2/BAB%20I%20PENDAHULUAN.pdf
+https://opencorpdata.com/id
+https://m2indonesia.com/informasi/perusahaan/profil-perusahaan-lembah-krya-pt-unit-minyak-kelapa-padang-provinsi-sumatera-barat.htm
 */
 
+/*
+56374 - Matched with 'Agroindo Indah Perkasa' from MD. The inputs for this facility are both FFB and CPO so possibly a refinery/kernel crusher? 
+Also, the main product based on 
+https://companychambers.blogspot.com/2018/11/profil-dan-alamat-lengkap-pt-agroindo.html
+https://www.smartbisnis.co.id/directory/agroindo-indah-perkasa 
+states that it is Minyak Goreng / Curah (Bulk Cooking Oil). 
+*/
+
+/*
+70406 - Matched with 'Tunas Lestari Sejati, PT' from MD. 
+Could not find any specific information about this being a mill. The best I could find is this article 
+https://jambi-independent.co.id/read/2018/10/09/30309/perusahaan-bermasalah-dengan-petani
+saying it is a plantation company. 
+*/
 
 *** homogenize mill and parent company names
 
 * Remove names of refineries or names that are mistakes. 
 replace mill_name = "" if firm_id == 1760
 replace mill_name = "" if firm_id == 2035
+replace mill_name = "" if firm_id == 3783
 replace mill_name = "" if firm_id == 4556
 replace mill_name = "" if firm_id == 10466
 replace mill_name = "" if firm_id == 10470
 replace mill_name = "" if firm_id == 10471
-replace mill_name = "" if firm_id == 18224
+replace mill_name = "" if firm_id == 18244
 replace mill_name = "" if firm_id == 33757
 replace mill_name = "" if firm_id == 34160
 replace mill_name = "" if firm_id == 43180
 replace mill_name = "" if firm_id == 51460
+replace mill_name = "" if firm_id == 56374
 replace mill_name = "" if firm_id == 60758
 replace mill_name = "" if firm_id == 71677
 replace mill_name = "" if firm_id == 72952
@@ -827,7 +868,7 @@ codebook firm_id if !mi(trase_code)
 codebook firm_id if !mi(lat)
 */
 
-/* Test that there all firm_id have only one unique set of coordinates 
+/* Test that all firm_id have only one unique set of coordinates 
 *drop n_lat_per_firm lat_error
 bys firm_id: egen n_lat_per_firm = nvals(lat)
 gen lat_error = n_lat_per_firm > 1 & !mi(lat)
@@ -841,60 +882,103 @@ codebook firm_id if lon_error == 1
 browse firm_id year lon lon lon_error if lon_error == 1
 */
 
-* Test that all coordinates have only one firm_id 
+/* Test that all coordinates have only one firm_id 
 bys lon lat: egen n_dif_id_per_coord = nvals(firm_id)
 gen coord_du = n_dif_id_per_coord > 1 & !mi(lat) 
 codebook firm_id if coord_du == 1
-browse firm_id year lon lat if coord_du == 1 
+browse firm_id year lon lat if coord_du == 1
+* there is only SURYARAYA LESTARI 1 
+drop n_dif_id_per_coord coord_du
+*/
+
+/* Test that all trase_code have only one unique set of coordinates 
+bys trase_code: egen n_lat_per_trase_code = nvals(lat)
+gen lat_error = n_lat_per_trase_code > 1 & !mi(trase_code)
+codebook trase_code if lat_error == 1
+browse firm_id year lat lon lat_error if lat_error == 1
+drop n_lat_per_trase_code lat_error
+
+* Test that all coordinates have only one trase_code 
+bys lon lat: egen n_dif_tc_per_coord = nvals(trase_code)
+gen coord_du = n_dif_tc_per_coord > 1 & !mi(lat) 
+codebook trase_code if coord_du == 1
+browse firm_id year trase_code mill_name lon lat if coord_du == 1 
 drop n_dif_id_per_coord coord_du
 
-sort mill_name firm_id year 
-browse if name_du == 1 | coord_du == 1 
+The only cases so far are the three mills that are not in UML. 
+*/
 
 ** remake min_year variables (to update for firm_id changes)
-sort firm_id year 
 bys firm_id: egen minmin_year = min(min_year)
 drop min_year 
 rename minmin_year min_year
-order min_year, after(year)
+order min_year, after(lon)
+sort firm_id year 
 
-* send to exploratory data analysis. 
-save "$base_path_wd\build\output\IBS_mills_final.dta", replace
+** some tidying
+order trase_code, after(year)
+order uml_id, after(trase_code)
 
-* send to outcome variables building in R: 
-keep if !mi(lat)
-keep firm_id year trase_code uml_id mill_name parent_co district_name kec_name village_name lat lon  
-duplicates drop firm_id, force
-save "$base_path_wd\build\input\mill_geolocalization\IBS_mills_geolocalized.dta", replace
+order desa_id, after(desa_code)
+order kabu_code, after(kab_code)
 
-codebook no_uml
+order est_year, after(min_year)
+order startYear, after(est_year)
+order active, after(max_year)
+label var min_year "first ibs year"
+label var est_year "UML estimated first year"
+label var startYear "Rothenberg estimated first year (uncleaned)"
+
+order district_name, after(lon)
+order kec_name, after(district_name)
+order village_name, after(kec_name)
+
+* save a panel complete version 
+sort firm_id year 
+save "$base_path_wd\build\input\IBS_UML_panel.dta", replace
+
+
+
+
+
+
+
+codebook firm_id if !mi(lat)
 codebook firm_id if !mi(trase_code)
-codebook trase_code
+codebook firm_id if !mi(mill_name)
 
+export excel firm_id year trase_code uml_id mill_name parent_co lat lon district_name kec_name village_name /// 
+min_year est_year startYear max_year active industry_code ///
+ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 flag_multiinput_ffb ///
+in_dom_cpo_price_imp1 in_dom_cpo_price_imp2 in_dom_ton_cpo in_dom_ton_cpo_imp1 in_dom_ton_cpo_imp2 in_dom_val_cpo in_dom_val_cpo_imp1 in_dom_val_cpo_imp2 ///
+in_imp_cpo_price_imp1 in_imp_cpo_price_imp2 in_imp_ton_cpo in_imp_ton_cpo_imp1 in_imp_ton_cpo_imp2 in_imp_val_cpo in_imp_val_cpo_imp1 in_imp_val_cpo_imp2 ///
+in_tot_cpo_price_imp1 in_tot_cpo_price_imp2 in_tot_ton_cpo in_tot_ton_cpo_imp1 in_tot_ton_cpo_imp2 in_tot_val_cpo in_tot_val_cpo_imp1 in_tot_val_cpo_imp2 ///
+cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 out_cpo ///
+pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 out_pko ///
+out_ton_rpo out_ton_rpo_imp1 out_ton_rpo_imp2 out_val_rpo out_val_rpo_imp1 out_val_rpo_imp2 prex_rpo prex_rpo_imp1 prex_rpo_imp2 out_rpo tag_multioutput_rpo ///
+out_ton_rpko out_ton_rpko_imp1 out_ton_rpko_imp2 out_val_rpko out_val_rpko_imp1 out_val_rpko_imp2 prex_rpko prex_rpko_imp1 prex_rpko_imp2 out_rpko ///
+EKSPOR export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp workers_total_imp3 ///
+using "$base_path_wd\build\output\IBS_UML_panel.xlsx", firstrow(variables) replace 
 
+* save a cross-sectional selected version 
+keep if !mi(lat)
+keep firm_id year trase_code uml_id mill_name parent_co lat lon district_name kec_name village_name /// 
+min_year est_year startYear max_year active industry_code ///
+avg_in_tot_ton_cpo_imp2 last_in_tot_ton_cpo_imp2 avg_in_ton_ffb_imp2 last_in_ton_ffb_imp2 avg_ffb_price_imp2 ///
+avg_out_ton_cpo_imp2 last_out_ton_cpo_imp2 avg_cpo_price_imp1 avg_cpo_price_imp2
+
+duplicates drop firm_id, force
+sort firm_id
+save "$base_path_wd\build\input\IBS_UML_cs.dta", replace
 
 
 /*
-keep firm_id year startYear industry_code ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 in_dom_cpo_price_imp1 in_dom_cpo_price_imp2 in_dom_ton_cpo in_dom_ton_cpo_imp1 in_dom_ton_cpo_imp2 in_dom_val_cpo in_dom_val_cpo_imp1 in_dom_val_cpo_imp2 in_imp_cpo_price_imp1 in_imp_cpo_price_imp2 in_imp_ton_cpo in_imp_ton_cpo_imp1 in_imp_ton_cpo_imp2 in_imp_val_cpo in_imp_val_cpo_imp1 in_imp_val_cpo_imp2 in_tot_cpo_price_imp1 in_tot_cpo_price_imp2 in_tot_ton_cpo in_tot_ton_cpo_imp1 in_tot_ton_cpo_imp2 in_tot_val_cpo in_tot_val_cpo_imp1 in_tot_val_cpo_imp2 cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 out_cpo pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 out_pko out_ton_rpo out_ton_rpo_imp1 out_ton_rpo_imp2 out_val_rpo out_val_rpo_imp1 out_val_rpo_imp2 prex_rpo prex_rpo_imp1 prex_rpo_imp2 out_rpo out_ton_rpko out_ton_rpko_imp1 out_ton_rpko_imp2 out_val_rpko out_val_rpko_imp1 out_val_rpko_imp2 prex_rpko prex_rpko_imp1 prex_rpko_imp2 out_rpko EKSPOR export_pct export_pct_imp ///
-revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp desa_code desa_name kab_code kab_name kec_code kec_name prov_code prov_name district_name village_name parent_co mill_name est_year lat lon trase_code
-
-
-sort mill_name firm_id year 
 browse firm_id year merge_overall_cfl mill_name parent_co trase_code lat lon ///
-merge_oto merge_noto merge_pre2011 merge_post2010 unref merge_unref_geo workers_total_imp3 district_name kec_name village_name ///
-min_year n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du ///
-export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp ///
- ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 ///
- cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 ///
- pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 ///
-  if name_du == 1 | coord_du == 1
-
-  */
-browse firm_id year merge_overall_cfl mill_name parent_co trase_code lat lon ///
-merge_oto merge_noto merge_pre2011 merge_post2010 unref merge_unref_geo workers_total_imp3 district_name kec_name village_name ///
+merge_oto merge_noto merge_pre2011 merge_post2010 merge_unref_geo workers_total_imp3 district_name kec_name village_name ///
 min_year n_dif_id_per_mill_name name_du n_dif_id_per_coord coord_du ///
 export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp ///
  ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 ///
  cpo_price_imp1 cpo_price_imp2 out_ton_cpo out_ton_cpo_imp1 out_ton_cpo_imp2 out_val_cpo out_val_cpo_imp1 out_val_cpo_imp2 prex_cpo prex_cpo_imp1 prex_cpo_imp2 ///
  pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_val_pko out_val_pko_imp1 out_val_pko_imp2 prex_pko prex_pko_imp1 prex_pko_imp2 ///
  if !mi(mill_name) & mi(lat)
+*/

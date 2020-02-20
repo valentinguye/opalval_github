@@ -34,7 +34,8 @@ Let's see what some tests can tell us on this risk (only for CPO).
 
 	*/
 
-use "C:\Users\guyv\ownCloud\opalval\build\temp\mill_geolocalization\IBS_mills_geolocalized.dta", clear
+*use "C:\Users\guyv\ownCloud\opalval\build\temp\mill_geolocalization\IBS_mills_geolocalized.dta", clear
+use "$base_path_wd\build\output\IBS_UML_panel.dta", clear
 
 	forvalues a = 1/2 {
 		gen double exp_ton_cpo_imp`a' = (prex_cpo_imp`a'/100)*out_ton_cpo_imp`a'

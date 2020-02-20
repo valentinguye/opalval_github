@@ -3,7 +3,7 @@
 #     Computation of deforestation imputable to oil palms around georeferenced mills                      #
 #                                                                                                         #
 #     Inputs: - georeferenced mills (from georeferencing works)                                           #
-#             ---> IBS_mills_geolocalized.dta                                                             #
+#             ---> IBS_UML_cs.dta                                                                         #
 #                                                                                                         #
 #             - 17 rasters of oil palm-imputable deforestation defo_1.tif to defo_17.tif from             #
 #               code prepare_deforestation_map.R                                                          #
@@ -64,7 +64,7 @@ setwd(here("/build/input/outcome_variables"))
 ############################################################################################################
 
 # read data.frame of cross-sectional mills with their coordinates. 
-mills <- read.dta13(here("/build/input/mill_geolocalization/IBS_mills_geolocalized.dta"))  
+mills <- read.dta13(here("/build/input/IBS_UML_cs.dta"))  
 
 #turn into an sf object. 
 mills <- st_as_sf(mills,	coords	=	c("lon",	"lat"), crs=4326)

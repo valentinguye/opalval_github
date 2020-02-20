@@ -100,15 +100,15 @@ parcels_centro <- dplyr::select(parcels_centro, parcel_id, geometry)
 
 #### PREPARE IBS DATA #### 
 
-ibs <- read.dta13(here("/build/output/IBS_mills_final.dta"))  
+ibs <- read.dta13(here("/build/output/IBS_panel_final.dta"))  
 
 # keep only geolocalized mills
 ibs <- ibs[is.na(ibs$lat) == FALSE,]
 length(unique(ibs$firm_id))
 
 # keep only some variables to fasten computations for now
-      ibs <- ibs[, c("firm_id", 
-                     "year", "min_year", "startYear", "max_year", 
+      ibs <- ibs[, c("firm_id", "year", "trase_code", "uml_id", "mill_name", "parent_co", "lat", "lon",
+                     "min_year","est_year",  "startYear", "max_year", 
                      "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
                      "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
                      "prex_cpo_imp1", "prex_cpo_imp2",
@@ -116,8 +116,13 @@ length(unique(ibs$firm_id))
                      "prex_pko_imp1", "prex_pko_imp2",
                      "export_pct_imp", "revenue_total", "workers_total_imp3",
                      "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp", 
-                     "trase_code", "parent_co", "mill_name", "est_year", "lat", "lon")]
-           
+                     "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2"               
+                     )]
+      
+            # we don't keep the logs because we don't want to compute means of logs, but logs of means. 
+            # "ffb_price_imp1_ln", "ffb_price_imp2_ln", "cpo_price_imp1_ln", "cpo_price_imp2_ln",        
+            #           "pko_price_imp1_ln", "pko_price_imp2_ln", "out_val_cpo_imp1_ln", "out_val_cpo_imp2_ln", "out_val_pko_imp1_ln",      
+            #          "out_val_pko_imp2_ln", "revenue_total_ln" 
                      
 
 # split the panel into sf cross sections 
@@ -185,16 +190,18 @@ for(i in parcels$parcel_id[s]){
                                                            w = 1/distance)
 }
 
-variables <- c("cpo_price_imp1","cpo_price_imp2", "prex_cpo_imp1", "prex_cpo_imp2")
+
  # Define the variables of interest we want to compute the weighted averages of. 
-# variables <- c("min_year", "startYear", "max_year",
-#                 "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
-#                 "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
-#                 "prex_cpo_imp1", "prex_cpo_imp2",
-#                 "pko_price_imp1","pko_price_imp2", "out_ton_pko_imp1", "out_ton_pko_imp2", "out_val_pko_imp1", "out_val_pko_imp2",
-#                 "prex_pko_imp1", "prex_pko_imp2",
-#                 "export_pct_imp", "revenue_total", "workers_total_imp3",
-#                 "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp")
+#variables <- c("cpo_price_imp1","cpo_price_imp2", "prex_cpo_imp1", "prex_cpo_imp2")
+variables <- c("min_year", "startYear", "max_year",
+                "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
+                "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
+                "prex_cpo_imp1", "prex_cpo_imp2",
+                "pko_price_imp1","pko_price_imp2", "out_ton_pko_imp1", "out_ton_pko_imp2", "out_val_pko_imp1", "out_val_pko_imp2",
+                "prex_pko_imp1", "prex_pko_imp2",
+                "export_pct_imp", "revenue_total", "workers_total_imp3",
+                "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp", 
+                "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2")
 
 # make the variable specific sum of the inverse of distance over all the reachable mills that have no missing on this variable.
 for(voi in variables){

@@ -3,7 +3,7 @@
 #     Preparation of annual maps of forest loss where oil palm plantations stood in 2015                  #
 #                                                                                                         #
 #     Inputs: - georeferenced mills (from georeferencing works)                                           #
-#             ---> IBS_mills_geolocalized.dta                                                             #
+#             ---> IBS_UML_cs.dta                                                             #
 #                                                                                                         #
 #             - oil palm plantations; already processed 2015 map from Austin here                         #
 #             ---> new_oilpalm_2015_WGS1984.tif                                                           #
@@ -28,8 +28,6 @@
 
 rm(list = ls())
 
-### local working directory, just to shorten calls.
-setwd("./build/input/outcome_variables")
 
 ### PACKAGES
 
@@ -38,7 +36,7 @@ if (!require(sf)) install.packages("sf", source = TRUE)
 #"plyr", 
 neededPackages = c("dplyr", "raster", "foreign", "sp", "lwgeom", "rnaturalearth", "data.table",
                    "rgdal", "readstata13",
-                   "rlist", "velox", "parallel", "foreach", "iterators", "doParallel", "readxl")
+                   "rlist", "velox", "parallel", "foreach", "iterators", "doParallel", "readxl", "here")
 allPackages    = c(neededPackages %in% installed.packages()[ , "Package"]) 
 
 # Install packages (if not already installed) 
@@ -73,7 +71,10 @@ library(devtools)
   if (!require(gfcanalysis)) install.packages('gfcanalysis')
   library(gfcanalysis)
 
-
+  ### local working directory, just to shorten calls.
+  setwd(here("build/input/outcome_variables"))
+  
+  
 ############################################################################################################
 #   Rather than calling all relevant gfc tiles, mosaicing, and masking with catchment areas, we will first 
 #   define an AOI corresponding to catchment areas (CAs) and load only Hansen's maps that cover them.     
@@ -84,14 +85,12 @@ library(devtools)
 #   to overlay it with plantations. 
 ############################################################################################################
 
-
-
-
+  
 ##### DEFINE AREA OF INTEREST (AOI) #####
 ############################################################################################################
 
 # read data.frame of cross-sectional mills with their coordinates. 
-mills <- read.dta13(paste0(base_path_wd, "/build/input/mill_geolocalization/IBS_mills_geolocalized.dta"))  
+mills <- read.dta13(here("build/input/IBS_UML_cs.dta"))  
 
 #turn into an sf object. 
 mills <- st_as_sf(mills,	coords	=	c("lon",	"lat"), crs=4326)
@@ -212,9 +211,9 @@ gfc_data75 <- brick("gfc_data_75th.tif")
 
 #names(gfc_data) #"gfc_data.1" "gfc_data.2" "gfc_data.3" "gfc_data.4"; .2 is lossyear (values going from 0 to 18). 
 # command below flexibly selects the layer that has years running from 15 (we don't want earlier versions of GFC here) to adapt to future versions. 
-loss25 <- gfc_data25[[which(gfc_data@data@max > 15 & gfc_data@data@max < 25)]]
-loss50 <- gfc_data50[[which(gfc_data@data@max > 15 & gfc_data@data@max < 25)]]
-loss75 <- gfc_data75[[which(gfc_data@data@max > 15 & gfc_data@data@max < 25)]]
+loss25 <- gfc_data25[[which(gfc_data25@data@max > 15 & gfc_data25@data@max < 30)]]
+loss50 <- gfc_data50[[which(gfc_data50@data@max > 15 & gfc_data50@data@max < 30)]]
+loss75 <- gfc_data75[[which(gfc_data75@data@max > 15 & gfc_data75@data@max < 30)]]
 
 #remove other layers
 rm(gfc_data25)
@@ -227,7 +226,7 @@ rm(gfc_data75)
 
 ### 2000 plantations
 # read plantation map 2000 in. 
-po <- raster(paste0(base_path_wd,"/build/input/PALMOIL/new_oilpalm_2000_WGS1984.tif"))
+po <- raster(here("build/input/PALMOIL/new_oilpalm_2000_WGS1984.tif"))
 
 # po # resolution is 0.002277, 0.002277
 # loss # resolution is 0.00025, 0.00025
@@ -242,7 +241,7 @@ rm(po)
 
 ### 2015 plantations
 # read plantation map 2015 in. 
-po <- raster(paste0(base_path_wd,"/build/input/PALMOIL/new_oilpalm_2015_WGS1984.tif"))
+po <- raster(here("build/input/PALMOIL/new_oilpalm_2015_WGS1984.tif"))
 
 # po # resolution is 0.002277, 0.002277
 # loss # resolution is 0.00025, 0.00025
@@ -261,7 +260,7 @@ rm(po)
 ########################################################################################################################
 # We want to keep forest loss pixels only within 2015 plantations in order to induce forest conversion to plantation, 
 # BUT outside 2000 plantations, in order not to count plantation renewals as forest conversion to plantation. 
-# po maps are binary with 1 meaning plantation in 2015) 
+# po maps are binary with 1 meaning plantation in 2015 (or 2000 resp.)) 
 po2000 <- raster("aligned_new_oilpalm_2000.tif")
 po2015 <- raster("aligned_new_oilpalm_2015.tif")
 
@@ -382,7 +381,111 @@ for (t in 1:length(years)){
 }
 
 rm(annualrastername, defo)
+
+
+
 #################################################################################################################################
+
+
+##### AGGREGATE THE PIXELS TO A GIVEN PARCEL SIZE. #####
+#################################################################################################################################
+    # Since in each annual map, original pixels are either 1 or 0 valued (conversion from forest to op plantation remotely sensed 
+    # for that pixel that year or not) and each pixel is the same area, the mean value of a group of pixels is 
+    # the ratio of the area deforested over the parcel area. This is refered to as the percentage of deforestation. 
+
+
+#### define parcel size ####
+PS <- 10000
+
+years <- seq(from = 1998, to = 2015, by = 1)
+
+threshold <- 25
+while(threshold < 100){
+  for(t in 1:length(years)){
+    processname <- paste0("./annual_maps/defo_",threshold,"th_", t,".tif")
+    
+    #create unique filepath for temp directory
+    dir.create(file.path(paste0(processname,"_Tmp")), showWarnings = FALSE)
+    #set temp directory
+    rasterOptions(tmpdir=file.path(paste0(processname,"_Tmp")))
+    
+    
+    ## Mask operation in order to keep only data in the area of interest
+    
+    # read in the indonesia wide raster of deforestation of year t, threshold th, computed in prepare_deforestation_maps.R 
+    annual_defo <- raster(processname)
+    
+    # aggregate it from the 30m cells to PSm cells with mean function. 
+    raster::aggregate(annual_defo, fact = c(PS/res(annual_defo)[1], PS/res(annual_defo)[2]), 
+                      expand = FALSE, 
+                      fun = mean,
+                      filename = paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"),
+                      overwrite = TRUE)
+
+    
+    ## Deal with memory and stockage issues: 
+    rm(annual_defo)
+    #removes entire temp directory without affecting other running processes (but there should be no temp file now)
+    unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
+    
+  }
+  
+  
+  #read in the 18 layers and brick them
+  layers_paths <- list.files(path = "./annual_parcels", pattern = paste0("parcels_",PS/1000,"km_",threshold, "th_"), full.names = TRUE) %>% as.list()
+  #layers_paths <- list.files(path = "./annual_maps", pattern = paste0("defo_",threshold, "th_"), full.names = TRUE) %>% as.list()
+  parcels_brick <- layers_paths %>% brick()
+  
+  #write the brick
+  writeRaster(parcels_brick, 
+              filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",threshold,"th.tif"), 
+              overwrite = TRUE)
+  
+  
+  threshold <- threshold + 25
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### MASK ? is not useful because reclassifying NAs to 0s does not make the file lighter. 
 # (and croping more is not possible.) 

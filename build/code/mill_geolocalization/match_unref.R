@@ -61,7 +61,7 @@ setwd(here("./build/input/mill_geolocalization/matching_unref"))
 #### PREPARE DATA ####
 
 # read in the digitized manufacturing directories.
-md <- read_excel("direktori_industri_merged_cleaned.xlsx")
+md <- read_excel(here("./build/input/mill_geolocalization/direktori_industri_merged_cleaned.xlsx"))
 # read in the full IBS panel 
 ibs <- read.dta13(here("./build/output/IBS_PO_98_15_cleaned.dta"))
 

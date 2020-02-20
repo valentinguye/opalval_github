@@ -30,7 +30,7 @@ indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +
 
 
 ### Edition of pictures of deforestation and pictures of price spatial heterogeneity, for one cross-section, say 2010
-ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/output/IBS_mills_final.dta")
+ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/output/IBS_UML_panel.dta")
 ibs_geo <- ibs[!is.na(ibs$lat),]
 nrow(unique(ibs_geo[,"firm_id"]))
 
@@ -104,18 +104,18 @@ plot(st_geometry(ibs_20km[1,]))
 
 #################################
 #### check whether geolocalized ibs firms that don't have a trase_code actually point at UML mills. 
-ibs <- read.dta13("IBS_mills_geolocalized.dta")
+ibs <- read.dta13("IBS_UML_cs.dta")
 ibs <- st_as_sf(ibs, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 ibs <- st_transform(ibs, crs = indonesian_crs )
 ibs %>% st_geometry() %>% plot() 
 ibs <- ibs[ibs$no_uml == 1,]
-ibs <- st_buffer(ibs, dist = 500)
+ibs <- st_buffer(ibs, dist = 1000)
 
 uml <- read.dta13("mills_20200129.dta")
 uml <- st_as_sf(uml, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 uml <- st_transform(uml, crs = indonesian_crs )
 uml %>% st_geometry() %>% plot() 
-uml <- st_buffer(uml, dist = 500)
+uml <- st_buffer(uml, dist = 1000)
 
 m <- st_intersects(ibs, uml) 
 m
@@ -125,28 +125,32 @@ m
 ibs[lengths(m)>0, c("mill_name", "parent_co")]
 uml[unlist(m), c("mill_name", "parent_co")]
 
-ibs[lengths(m)>0,][1,]
+ibs[lengths(m)==0,][4,]
 uml[unlist(m)[1], ]
 
 ibs <- st_transform(ibs, crs = 4326)
 uml <- st_transform(uml, crs = 4326)
 
-look <- uml$geometry[unlist(m)[1]]
+ibs[lengths(m)==0,][7,]
+look <- ibs$geometry[lengths(m)==0][7]
 
 look%>% 
   leaflet() %>% 
   addTiles()%>%
   addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
-  addPolygons(opacity = 0.5, color = "red", weight = 2, fill = FALSE) %>% 
-  addPolygons(data = st_geometry(ibs[lengths(m)>0,][1,]), opacity = 0.5, color = "blue", weight = 2, fill = FALSE)
+  addPolygons(opacity = 0.5, color = "red", weight = 2, fill = FALSE) 
 
+#%>% 
+ # addPolygons(data = st_geometry(ibs[lengths(m)>0,][1,]), opacity = 0.5, color = "blue", weight = 2, fill = FALSE)
+
+# The empty ones: those that were spotted manually and no UML mill is within 1km. 
 
 
 
 
 #################################
 #### check that close coordinates pointing at the same mill have not been matched with two different firm_id. 
-ibs <- read.dta13("IBS_mills_geolocalized.dta")
+ibs <- read.dta13("IBS_UML_cs.dta")
 ibs <- st_as_sf(ibs, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 ibs <- st_transform(ibs, crs = indonesian_crs )
 ibs %>% st_geometry() %>% plot() 

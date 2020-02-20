@@ -3,8 +3,8 @@ import excel "C:\Users\guyv\ownCloud\opalval\analysis\input\prices_exp.xlsx", sh
 drop Domesticprice FOBPrice
 save "C:\Users\guyv\ownCloud\opalval\analysis\input\prices_exp.dta", replace
 
-use "C:\Users\guyv\ownCloud\opalval\build\input\IBS_1998_cleaned.dta", clear
-
+*use "C:\Users\guyv\ownCloud\opalval\build\input\IBS_1998_cleaned.dta", clear
+use "$base_path_wd\build\output\IBS_UML_panel.dta", clear
 merge m:1 year using C:\Users\guyv\ownCloud\opalval\analysis\input\prices_exp.dta, nogenerate 
 *need to change the global for all new price variables each time (and don't forget to NOT DELFATE taxeffectiverate). 
 global prices ref_int_cpo_price cif_rtdm_cpo dom_blwn_cpo fob_blwn_cpo spread_int_dom rho dom_blwn_pko cif_rtdm_pko

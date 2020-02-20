@@ -3,7 +3,7 @@
 #     Computation of deforestation imputable to oil palms around georeferenced mills                      #
 #                                                                                                         #
 #     Inputs: - georeferenced mills (from georeferencing works)                                           #
-#             ---> IBS_mills_geolocalized.dta                                                             #
+#             ---> IBS_UML_cs.dta                                                             #
 #                                                                                                         #
 #             - 17 rasters of oil palm-imputable deforestation defo_1.tif to defo_17.tif from             #
 #               code prepare_deforestation_map.R                                                          #
@@ -57,7 +57,7 @@ library(tictoc)
 
 
 ### LOCAL WORKING DIRECTORY, just to shorten calls.
-setwd(here("/build/input/outcome_variables"))
+setwd(here("build/input/outcome_variables"))
 
 #### define parcel size ####
 PS <- 10000
@@ -80,7 +80,7 @@ years <- seq(from = 1998, to = 2015, by = 1)
 ############################################################################################################
 
 # read data.frame of cross-sectional mills with their coordinates. 
-mills <- read.dta13(here("/build/input/mill_geolocalization/IBS_mills_geolocalized.dta"))  
+mills <- read.dta13(here("/build/input/IBS_UML_cs.dta"))  
 
 #turn into an sf object. 
 mills <- st_as_sf(mills,	coords	=	c("lon",	"lat"), crs=4326)
@@ -151,7 +151,7 @@ annual_aggregate <- function(t, threshold){
   annual_defo <- raster(processname)
   
   # mask with the mill influence polygon. 
-  mask(annual_defo, total_ca_sp, 
+  raster::mask(annual_defo, total_ca_sp, 
        filename = paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif"),
        overwrite = TRUE)
   
@@ -294,6 +294,27 @@ while(th < 100){
 #ddf <- st_as_sf(ddf, coords = c("x","y"))
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ####################################################################################################"
 ####################################################################################################"
 #####                         TEST                   #######
@@ -318,6 +339,9 @@ years <- seq(from = 1998, to = 2015, by = 1)
 t <- 10
 threshold <- 50
 th <- 50
+
+
+
 ### 1. build the function that will be called in the foreach loop: 
 
 annual_aggregate <- function(t, threshold){
@@ -354,7 +378,7 @@ annual_aggregate <- function(t, threshold){
   
   
   #removes entire temp directory without affecting other running processes
-  unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
+ # unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
   
   
   return(paste0("./test/parcels_", threshold, "th_", t, ".tif"))
@@ -375,21 +399,17 @@ aggregate_parallel <- function(detected_cores, th){
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
 }
-showTmpFiles()
-length(years)
 
 
 ### 3. run it for each forest definition (threshold 25, 50 or 75). 
-tic()
-aggregate_parallel(detected_cores = detectCores() - 2, th = th)
-toc()
+th <- 50
 
 th <- 25
 while(th < 100){
   # compute the RasterStack object of 18 annual layers for this threshold
   tic()
   #read in the 18 layers and brick them
-  parcels_brick <- brick(aggregate_parallel(detected_cores = detectCores(), th = th))
+  parcels_brick <- brick(aggregate_parallel(detected_cores = 2, th = th))
   
   #write the brick
   writeRaster(parcels_brick, 
@@ -427,26 +447,6 @@ str(df)
 
 ############################################ END OF TEST ############################################################
 
-#################### Draft code ##############################
-### Draft code ### 
-# create a raster from scratch, of resolution the plot size we want for our analysis. 
-#let's say 4 square km. 
-# this a raster with the defined resolution, but over the whole bbox (extent) of total_ca
-r <- raster(total_ca, res = PS, crs = indonesian_crs)
-
-# mask outside the influence 
-values(r) <- 1
-mask <- as(total_ca, "Spatial")
-rp <- mask(r, mask, updatevalue = NA)
-rm(r)
-
-# make annual layers.
-years <- c(1:18)
-for(t in 1:length(years)){
-  annualrastername <- paste0("./annual_parcels/parcels_", t,".tif")
-  writeRaster(rp, 
-              filename = annualrastername)
-}
 #########################################################
 
 

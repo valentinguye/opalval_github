@@ -28,21 +28,20 @@ lapply(neededPackages, library, character.only = TRUE)
 #######################################################################
 
 # Set up working directory 
-file.path(PROJHOME, "/build/code", "Prepare_remote_sensing_palmoil.R")
-file.path(here())
+setwd(here("build/input/PALMOIL"))
 ######################################################################
 ######################################################################
 ### LOAD NECESSARY PALM OIL REMOTE SENSING DATA 
 
 # Load palm oil remote sensing data (raster)
-tif.all.names     <- list.files(path = "build/input/PALMOIL/IIASA_indo_oilpalm_map", pattern = ".tif")
-other.names       <- list.files(path = "build/input/PALMOIL/IIASA_indo_oilpalm_map", pattern = ".tif.")
+tif.all.names     <- list.files(path = "IIASA_indo_oilpalm_map", pattern = ".tif")
+other.names       <- list.files(path = "IIASA_indo_oilpalm_map", pattern = ".tif.")
 tif.names         <- tif.all.names[!(tif.all.names %in% other.names)]
 data.file         <- list()
 
 for (i in 1: length(tif.names)){
   
-  file.path      <- paste0("build/input/PALMOIL/IIASA_indo_oilpalm_map/", tif.names[i])
+  file.path      <- paste0("IIASA_indo_oilpalm_map/", tif.names[i])
   data.file[[i]] <- raster(file.path)
   
   # Change name of raster to identify year
@@ -71,14 +70,10 @@ for (i in 1:length(data.file)){
   # Replace original raster values with binary cell vector
   data.file[[i]] <-  setValues(data.file[[i]], values = new.value)
   
-  # Extend raster to exactly match the extent of district and desa shapefile, new cells have value 0
-  #extent_indo    <- extent(94.5,141.5,-11.5,6.5)
-  #data.file[[i]] <- raster::extend(data.file[[i]], y=extent_indo, value=0)
-  
   # Save raster files
-  #name.vec <- paste0("build/output/data/", "new_" ,names(data.file[[i]]))
-  #writeRaster(x = data.file[[i]], filename = name.vec, overwrite=TRUE) 
-  #rm(val.raster, IND.empty, new.value)
+  name.vec <- paste0("new_" ,names(data.file[[i]]))
+  writeRaster(x = data.file[[i]], filename = name.vec, overwrite=TRUE) 
+  rm(val.raster, IND.empty, new.value)
   
 }
 
