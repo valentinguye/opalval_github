@@ -31,7 +31,7 @@
 rm(list = ls())
 
 # PACKAGES
-install.packages("sf", source = TRUE)
+#install.packages("sf", source = TRUE)
 library(sf)
 
 neededPackages = c("data.table","plyr", "dplyr", "tidyr", "readxl","foreign", "data.table", "readstata13", "here",
@@ -60,10 +60,10 @@ library(tictoc)
 setwd(here("build/input/outcome_variables"))
 
 #### define parcel size ####
-PS <- 10000
+PS <- 3000
 
 #### define buffer size for the catchment areas  ####
-BS <- 40000
+BS <- 50000
 
 #### define projection #### 
 #   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
@@ -107,7 +107,7 @@ mills_coord <- st_geometry(mills_prj)
 # here, we define the catchment area invariably at 50 km, the maximum buffer we will consider, so that the deforestation aggregation 
 # at the parcel level is done once and for all. The BS variable will be used later on, when selecting what parcels to keep. 
 # here we are not at parcel selection yet but in the forge of all possibly useful parcels. 
-mills_ca <- st_buffer(mills_prj, dist = 50+PS) 
+mills_ca <- st_buffer(mills_prj, dist = 50000+PS) 
 for(i in 1:nrow(mills_ca)){
   mills_ca$geometry[i] <- st_as_sfc(st_bbox(mills_ca$geometry[i]))
 }
@@ -115,71 +115,63 @@ total_ca <- st_union(st_geometry(mills_ca))
 total_ca <- st_as_sf(total_ca)
 total_ca_sp <- as(total_ca, "Spatial")
 
+
+
+
 # A parallel computing set up has been used to speed things up. ( ///!!!\\\ )
 # it has 3 steps: 
 # 1. Build a function that will be executed for each year in parallel. 
 #     This function, individually, aggregates one map for one year and one threshold. 
 #     Its input is a RasterLayer file
-#     Its output is a RasterLayer file
+#     Its output is a RasterLayer file (= the input aggregated)
 
 # 2. Register (i.e. build) the parallel function that executes the annual_aggregate over each year.
 #     If one runs this function, the aggregation is made for all years, but only one given threshold.
 #     Its inputs are the 18 raster layers for one threshold definition. 
-#     Its output is a RasterStack
+#     Its output is a list of paths to raster layers. 
 
+ # not anymore:
 # 3. Execute the parallel function within a loop over thresholds. 
 #     The inputs of the loop are the 3 RasterBrick of 18 layers. 
 #     The output of the loop is what we want: 3 data frames in wide format (each column is a year)
 
-
+rasterOptions(progress = "window")
 ### 1. build the function that will be called in the foreach loop: 
+
 
 annual_aggregate <- function(t, threshold){
   
   ## Define which process (year and threshold) we are in: 
-  processname <- paste0("./annual_maps/defo_",threshold,"th_", t,".tif")
+  
+  processname <- file.path(paste0("./annual_maps/defo_",threshold,"th_", t,".tif"))
   
   #create unique filepath for temp directory
-  dir.create(file.path(paste0(processname,"_Tmp")), showWarnings = FALSE)
-  #set temp directory
-  rasterOptions(tmpdir=file.path(paste0(processname,"_Tmp")))
-  
-  
-  ## Mask operation in order to keep only data in the area of interest
+  dir.create(paste0(processname,"_Tmp"), showWarnings = FALSE)
+  # #set temp directory
+  rasterOptions(tmpdir=paste0(processname,"_Tmp"))
   
   # read in the indonesia wide raster of deforestation of year t, threshold th, computed in prepare_deforestation_maps.R 
   annual_defo <- raster(processname)
   
-  # mask with the mill influence polygon. 
-  raster::mask(annual_defo, total_ca_sp, 
-       filename = paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif"),
-       overwrite = TRUE)
-  
-  rm(annual_defo)
-  
-  
   ## Aggregation operation
   
-  # read in the masked raster 
-  maskedrastername <- paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif")
-  annual_defo_masked <- raster(maskedrastername)
-  
-  # aggregate it from the 30m cells to PSm cells with mean function. 
-  raster::aggregate(annual_defo_masked, fact = c(PS/res(annual_defo_masked)[1], PS/res(annual_defo_masked)[2]), 
+  # aggregate from the 30m cells to PSm cells with mean function. 
+  raster::aggregate(annual_defo, fact = c(PS/res(annual_defo)[1], PS/res(annual_defo)[2]), 
                     expand = FALSE, 
                     fun = mean,
                     filename = paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"),
+                    options   = "COMPRESS=LZW", # as recommended in https://discuss.ropensci.org/t/how-to-avoid-space-hogging-raster-tempfiles/864/3
+                    # options = c("COMPRESS=NONE", "TFW=YES") as recommended in help(writeRaster)
                     overwrite = TRUE)
   # Since in each annual map, original pixels are either 1 or 0 valued (conversion from forest to op plantation remotely sensed 
   # for that pixel that year or not) and each pixel is the same area, the mean value of a group of pixels is 
   # the ratio of the area deforested over the parcel area. This is refered to as the percentage of deforestation. 
   
   ## Deal with memory and stockage issues: 
-  rm(annual_defo_masked)
-  file.remove(paste0("./annual_maps/defo_",PS/1000,"km_",threshold,"th_",t,"_masked.tif"))
   #removes entire temp directory without affecting other running processes (but there should be no temp file now)
-  unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
+  #unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
   
+  unlink(file.path(tmpDir()), recursive = TRUE)
   
   ## return the path to this parcels file 
   return(paste0("./annual_parcels/parcels_",PS/1000,"km_",threshold, "th_", t,".tif"))
@@ -195,9 +187,10 @@ aggregate_parallel <- function(detected_cores, th){
   # the loop has arguments to define how the results of the workers should be combined, and to give "workers" (CPUs) 
   # the objects and packages they need to run the function. 
   foreach(t = 1:length(years), 
-          # .combine = raster::stack, combine the outputs as a mere character list (by default)
+          # .combine combine the outputs as a mere character list (by default)
+          .inorder = FALSE, # we don't care that the results be combine in the same order they were submitted
           .multicombine = TRUE,
-          .export = c("annual_aggregate", "years", "PS", "BS", "total_ca_sp"), 
+          .export = c("annual_aggregate", "years", "PS"), 
           .packages = c("sp", "raster")) %dopar% 
     annual_aggregate(t, threshold = th) # the function that is parallelly applied to different years. 
 }
@@ -206,24 +199,22 @@ aggregate_parallel <- function(detected_cores, th){
 
 ### 3. run it for each forest definition (threshold 25, 50 or 75). 
 
-th <- 25
-while(th < 100){
+th <- 50
   # compute the RasterBrick object of 18 annual layers for this threshold
-  tic()
-  #read in the 18 layers and brick them
-  parcels_brick <- brick(aggregate_parallel(detected_cores = detectCores(), th = th))
+  # this runs the computation, that writes the layers and return a list of their paths 
+  rasterlist <- aggregate_parallel(detected_cores = detectCores() - 1, th = th)
+  
+  parcels_brick <- brick(rasterlist)
   
   #write the brick
   writeRaster(parcels_brick, 
-        filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",th,"th.tif"), 
-        overwrite = TRUE)
-  toc()
+              filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",th,"th.tif"), 
+              overwrite = TRUE)
   
   #remove the brick object from memory
   rm(parcels_brick)
+  
 
-  th <- th + 25
-}
 
 ##############################################################################################
 
@@ -379,7 +370,7 @@ annual_aggregate <- function(t, threshold){
   
   #removes entire temp directory without affecting other running processes
  # unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
-  
+  unlink(tmpDir(), recursive = TRUE)
   
   return(paste0("./test/parcels_", threshold, "th_", t, ".tif"))
 }
@@ -394,6 +385,7 @@ aggregate_parallel <- function(detected_cores, th){
   foreach(t = 10:11, 
           #.combine = ,
           #.combine = list.files,
+          .inorder = FALSE,
           .multicombine = F,
           .export = c("annual_aggregate", "years", "PS", "total_ca_sp"), 
           .packages = c("sp", "raster")) %dopar% 

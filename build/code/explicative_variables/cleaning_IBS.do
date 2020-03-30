@@ -1516,7 +1516,7 @@ foreach commo of global commodity{
 **** Attribute as much geographic information as possible.  
 sort firm_id year 
 
-merge 1:1 firm_id year using "$base_path_wd\build\input\mill_geolocalization\IBS_base_prelu.dta", generate(merge_base_prelu) keepusing(province district /// 
+merge 1:1 firm_id year using "$base_path_wd\build\input\mill_geolocalization\IBS_base_prelu.dta", generate(merge_base_prelu) keepusing(island_number island_name island_factor province district /// 
 	desa_code desa_name kab_code kab_name kec_code kec_name prov_code prov_name desa_id district_id desa_code_2000 district_code_1993) update
 * all master's are matched because IBS_base_prelu is on 1998-2015 although desa_id, like other variables, is available only until 2010. 
 * 1220 obs. that were missing on either province or district have been updated (0 nonmissing conflict). 
@@ -1528,6 +1528,10 @@ drop merge_base_prelu
 * We don't add desa_id and desa_code_2000 for 368 and 367 obs. resp. from IBS_desa2000 (other variables are not updated by IBS_desa2000) 
 * because these are obs already removed purposedly when desa_fl (string_fl) ==1. 
 
+*** ISLANDS 
+
+replace island_name = "Sumatra" if island_name == "Riau"
+replace island_factor = 8 if island_factor == 6
 
 *** DISTRICTS 
 ** For 2000-2010 use district_id already available. For other years, build it. 

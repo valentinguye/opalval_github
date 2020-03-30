@@ -30,7 +30,7 @@ indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +
 
 
 ### Edition of pictures of deforestation and pictures of price spatial heterogeneity, for one cross-section, say 2010
-ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/output/IBS_UML_panel.dta")
+ibs <- read.dta13("C:/Users/GUYE/Desktop/opalval/build/input/IBS_UML_panel.dta")
 ibs_geo <- ibs[!is.na(ibs$lat),]
 nrow(unique(ibs_geo[,"firm_id"]))
 
@@ -39,15 +39,15 @@ ibs_geo$Y <- ibs_geo$lat
 ibs_geo <- st_as_sf(ibs_geo, coords = c("lon", "lat"), crs = 4326)
 ibs_geo_prj <- st_transform(ibs_geo, crs = indonesian_crs )
 
-ibs_geo_prj <- st_buffer(ibs_geo_prj, dist = 20000)
-plot(ibs_geo_prj[ibs_geo_prj$year==2013,"cpo_price_imp1"])
+ibs_geo_prj <- st_buffer(ibs_geo_prj, dist = 50000)
+plot(ibs_geo_prj[ibs_geo_prj$year==2013,"ffb_price_imp2"])
 
 ibs_geo <- st_transform(ibs_geo_prj, crs = 4326)
-plot(ibs_geo[ibs_geo$year==2013,"cpo_price_imp2"])
+plot(ibs_geo[ibs_geo$year==2013,"ffb_price_imp2"])
 
 bins <- seq(from = 0, to = 300, by = 50)
 pal <- colorBin("inferno", domain = ibs_geo$ffb_price_imp2, bins = bins)
-ibs_geo[ibs_geo$year==2003,"ffb_price_imp2"]%>% 
+ibs_geo[ibs_geo$year==2013,"ffb_price_imp2"]%>% 
   leaflet() %>% 
   addTiles()%>%
   addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
@@ -55,7 +55,7 @@ ibs_geo[ibs_geo$year==2003,"ffb_price_imp2"]%>%
               fillOpacity = 0.8, fillColor = ~pal(ffb_price_imp2),  
               weight = 1, noClip = FALSE) %>% 
   addLegend(pal = pal, values = ~ffb_price_imp2, opacity = 0.7,
-             title = "Mills' 20km catchment areas and <br/> their 2003 input mean unit values <br/> (2010 USD/ton CPO)", position = "topright")
+             title = "Mills' 50km catchment areas and <br/> their 2003 input mean unit values <br/> (2010 USD/ton CPO)", position = "topright")
             
 
 max(ibs_geo$ffb_price_imp2, na.rm = TRUE)

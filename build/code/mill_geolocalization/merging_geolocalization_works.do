@@ -908,6 +908,10 @@ drop n_dif_id_per_coord coord_du
 The only cases so far are the three mills that are not in UML. 
 */
 
+* One last cleaning action: a mill geolocalized in Papua has island_name in Maluku, it is 46510
+replace island_name = "Papua" if firm_id == 46510
+replace island_factor = 5 if island_factor == 4
+
 ** remake min_year variables (to update for firm_id changes)
 bys firm_id: egen minmin_year = min(min_year)
 drop min_year 
@@ -929,7 +933,9 @@ label var min_year "first ibs year"
 label var est_year "UML estimated first year"
 label var startYear "Rothenberg estimated first year (uncleaned)"
 
-order district_name, after(lon)
+order island_factor, after(lon)
+order island_name, after(island_factor)
+order district_name, after(island_name)
 order kec_name, after(district_name)
 order village_name, after(kec_name)
 
@@ -962,7 +968,7 @@ using "$base_path_wd\build\output\IBS_UML_panel.xlsx", firstrow(variables) repla
 
 * save a cross-sectional selected version 
 keep if !mi(lat)
-keep firm_id year trase_code uml_id mill_name parent_co lat lon district_name kec_name village_name /// 
+keep firm_id year trase_code uml_id mill_name parent_co lat lon island_factor island_name district_name kec_name village_name /// 
 min_year est_year startYear max_year active industry_code ///
 avg_in_tot_ton_cpo_imp2 last_in_tot_ton_cpo_imp2 avg_in_ton_ffb_imp2 last_in_ton_ffb_imp2 avg_ffb_price_imp2 ///
 avg_out_ton_cpo_imp2 last_out_ton_cpo_imp2 avg_cpo_price_imp1 avg_cpo_price_imp2
