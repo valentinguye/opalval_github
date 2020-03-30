@@ -1,3 +1,42 @@
+
+rm(list = ls())
+
+##### PACKAGES, WD, OBJECTS #####
+
+### PACKAGES
+
+# sf need to be installed from source for lwgeom te be installed from source. 
+if (!require(sf)) install.packages("sf", source = TRUE)
+#"plyr", 
+neededPackages = c("dplyr", "raster", "foreign", "sp", "lwgeom", "rnaturalearth", "data.table",
+                   "rgdal", "readstata13",
+                   "rlist", "velox", "parallel", "foreach", "iterators", "doParallel", "readxl", "here")
+allPackages    = c(neededPackages %in% installed.packages()[ , "Package"]) 
+
+# Install packages (if not already installed) 
+if(!all(allPackages)) {
+  missingIDX = which(allPackages == FALSE)
+  needed     = neededPackages[missingIDX]
+  lapply(needed, install.packages)
+}
+
+# Load all defined packages
+lapply(neededPackages, library, character.only = TRUE)
+library(sf)
+
+# install other packages not from source.
+if (!require(devtools)) install.packages("devtools")
+library(devtools)
+
+# package tictoc
+install_github("jabiru/tictoc")
+library(tictoc)
+
+#install.packages("sf", source = TRUE)
+#if (!require(devtools)) install.packages("devtools")
+#devtools::install_github("r-spatial/lwgeom")
+#library(lwgeom)
+
 #INSTALL GFC ANALYSIS
 # Install the snow package used to speed spatial analyses
 if (!require(snow)) install.packages("snow")
@@ -5,7 +44,8 @@ library(snow)
 # Install Alex's gfcanalysis package
 if (!require(gfcanalysis)) install.packages('gfcanalysis')
 library(gfcanalysis)
-### local working directory, just to shorten calls, using here.
+
+### local working directory, just to shorten calls, using here. 
 setwd(here("build/input/outcome_variables"))
 ### INDONESIAN CRS
 #   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
@@ -14,9 +54,11 @@ setwd(here("build/input/outcome_variables"))
 #   +proj=cea +lon_0=0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs
 #   which we center at Indonesian longitude with lat_ts = 0 and lon_0 = 115.0
 indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
+
 # risque de mal se passer avec l'écritute en fonction
 rasterOptions(chunksize = 1e+9,
               timer = TRUE)
+
 # chunksize = 3Go and maxmemory = 5Go is for the hypothesis that each core will get these rasterOptions
 # and therefore we want to allow each of our 3 cores to process chunks of no more than 3Go, totalling to 9Go memory
 # and hence leaving some to the fourth core to do other things while computations run.
@@ -24,13 +66,16 @@ rasterOptions(chunksize = 1e+9,
 # don't want the first core to be able to process in memory a 10Go raster for instance, and the others are left
 # with very few memory left even for chunk by chunk processing...
 ############################################################################################################
+
 #################################################################
 # Write prepare_deforestation script as a function of island
 # either Sumatra-Java, Kalimantan, Sulawesi and Papua-Maluku (?)
 #################################################################
-# note on rm in function: removes object in the function "frame" i.e. environment withou
+
+# note on rm in function: removes object in the function "frame" i.e. environment without
 # having to specify something (I tested it)
-#island <- "Sumatra"
+
+
 prepare_pixel_lucfp <- function(island){
   ##### DEFINE AREA OF INTEREST (AOI) #####
   ############################################################################################################
@@ -158,108 +203,131 @@ prepare_pixel_lucfp <- function(island){
   # first crop po maps to the current aoi (island bbox) to match res.
   # then projectRaster to match res - disaggregate before is not necessary (yields the same result)
   ### read gfc_data, the target of the align operations
-  gfc_data <- brick(paste0("gfc_data_",island,".tif"))
-  ### 2000 plantations
-  po2000 <- raster(here("build/input/PALMOIL/new_oilpalm_2000_WGS1984.tif"))
-  # match extent
-  crop(po2000, y = gfc_data,
-       filename = paste0("./oilpalm_2000_",island,"_croped.tif"),
-       datatype = "INT1U",
-       overwrite = TRUE)
-  # 3 minutes, not even printed
-  # reduce chunksize to 1go otherwise the parallel projectRaster crashes
-  # rasterOptions(chunk_size = 1e+9)
-  # match resolution.
-  po2000 <- raster(paste0("./oilpalm_2000_",island,"_croped.tif"))
-  # we run it within a cluster because according to ?clusterR
-  # "projectRaster has a build-in capacity for clustering that is automatically used if beginCluster() has been called."
-  #beginCluster()
-  projectRaster(from = po2000, to = gfc_data,
-                method = "ngb",
-                filename = paste0("./oilpalm_2000_",island,"_aligned.tif"),
-                datatype = "INT1U",
-                overwrite = TRUE )
-  #endCluster()
-  rm(po2000)
-  # 18700 seconds
-  ### 2015 plantations
-  po2015 <- raster(here("build/input/PALMOIL/new_oilpalm_2015_WGS1984.tif"))
-  # match extent
-  crop(po2015, y = gfc_data,
-       filename = paste0("./oilpalm_2015_",island,"_croped.tif"),
-       datatype = "INT1U",
-       overwrite = TRUE)
-  # less than a minute, not even printed
-  # match resolution
-  po2015 <- raster(paste0("./oilpalm_2015_",island,"_croped.tif"))
-  # beginCluster()
-  projectRaster(from = po2015, to = gfc_data,
-                method = "ngb",
-                filename = paste0("./oilpalm_2015_",island,"_aligned.tif"),
-                datatype = "INT1U",
-                overwrite = TRUE )
-  # endCluster()
-  # 9436 seconds
-  rm(po2015)
-  rm(gfc_data)
-  ########################################################################################################################
-  ##### OVERLAY FOREST LOSS AND OIL PALM PLANTATIONS #####
-  ########################################################################################################################
-  # We want to keep forest loss pixels only within 2015 plantations in order to induce forest conversion to plantation,
-  # BUT outside 2000 plantations, in order not to count plantation renewals as forest conversion to plantation.
-  # po maps are binary with 1 meaning plantation in 2015 (or 2000 resp.))
-  po2000 <- raster(paste0("./oilpalm_2000_",island,"_aligned.tif"))
-  po2015 <- raster(paste0("./oilpalm_2015_",island,"_aligned.tif"))
-  # overlay function
-  f <- function(rs){rs[[1]]*(1-rs[[2]])*rs[[3]]}
-  # multiplies a cell of forest loss (rs[[1]]) by 0 if it it is a plantation in 2000 (rs[[2]]) or if is not a plantation in 2015 (rs[[3]])
-  ## For th% treshold definition
-  th <- 30
-  while(th < 100){
-    # call the loss layer for threshold th
-    thed_gfc_data <- brick(paste0("gfc_data_",island,"_",th,"th.tif"))
-    # select the loss layer
-    loss <- thed_gfc_data[[which(thed_gfc_data@data@max > 15 & thed_gfc_data@data@max < 40)]]
-    # remove useless other stack of gfc layers
-    rm(thed_gfc_data)
-    # stack loss with plantation maps
-    rs <- stack(loss, po2000, po2015)
-    # run the computation in parallel with clusterR, as cells are processed one by one independently.
-    beginCluster() # uses by default detectedCores() - 1
-    clusterR(rs,
-             fun = calc, # note we use calc but this is equivalent to using overlay
-             args = list(f),
-             filename = paste0("lucfp_",island,"_",th,"th.tif"),
-             datatype = "INT1U",
-             overwrite = TRUE )
-    endCluster()
-    rm(loss)
-    th <- th + 30
-  }
-  # ~ 4500 seconds / threshold
-  rm(po2000, po2015)
+  # gfc_data <- brick(paste0("gfc_data_",island,".tif"))
+  # ### 2000 plantations
+  # po2000 <- raster(here("build/input/PALMOIL/new_oilpalm_2000_WGS1984.tif"))
+  # # match extent
+  # crop(po2000, y = gfc_data,
+  #      filename = paste0("./oilpalm_2000_",island,"_croped.tif"),
+  #      datatype = "INT1U",
+  #      overwrite = TRUE)
+  # # 3 minutes, not even printed
+  # # reduce chunksize to 1go otherwise the parallel projectRaster crashes
+  # # rasterOptions(chunk_size = 1e+9)
+  # # match resolution.
+  # po2000 <- raster(paste0("./oilpalm_2000_",island,"_croped.tif"))
+  # # we run it within a cluster because according to ?clusterR
+  # # "projectRaster has a build-in capacity for clustering that is automatically used if beginCluster() has been called."
+  # #beginCluster()
+  # projectRaster(from = po2000, to = gfc_data,
+  #               method = "ngb",
+  #               filename = paste0("./oilpalm_2000_",island,"_aligned.tif"),
+  #               datatype = "INT1U",
+  #               overwrite = TRUE )
+  # #endCluster()
+  # rm(po2000)
+  # # 18700 seconds
+  # ### 2015 plantations
+  # po2015 <- raster(here("build/input/PALMOIL/new_oilpalm_2015_WGS1984.tif"))
+  # # match extent
+  # crop(po2015, y = gfc_data,
+  #      filename = paste0("./oilpalm_2015_",island,"_croped.tif"),
+  #      datatype = "INT1U",
+  #      overwrite = TRUE)
+  # # less than a minute, not even printed
+  # # match resolution
+  # po2015 <- raster(paste0("./oilpalm_2015_",island,"_croped.tif"))
+  # # beginCluster()
+  # projectRaster(from = po2015, to = gfc_data,
+  #               method = "ngb",
+  #               filename = paste0("./oilpalm_2015_",island,"_aligned.tif"),
+  #               datatype = "INT1U",
+  #               overwrite = TRUE )
+  # # endCluster()
+  # # 9436 seconds
+  # rm(po2015)
+  # rm(gfc_data)
+  # ########################################################################################################################
+  # ##### OVERLAY FOREST LOSS AND OIL PALM PLANTATIONS #####
+  # ########################################################################################################################
+  # # We want to keep forest loss pixels only within 2015 plantations in order to induce forest conversion to plantation,
+  # # BUT outside 2000 plantations, in order not to count plantation renewals as forest conversion to plantation.
+  # # po maps are binary with 1 meaning plantation in 2015 (or 2000 resp.))
+  # po2000 <- raster(paste0("./oilpalm_2000_",island,"_aligned.tif"))
+  # po2015 <- raster(paste0("./oilpalm_2015_",island,"_aligned.tif"))
+  # # overlay function
+  # f <- function(rs){rs[[1]]*(1-rs[[2]])*rs[[3]]}
+  # # multiplies a cell of forest loss (rs[[1]]) by 0 if it it is a plantation in 2000 (rs[[2]]) or if is not a plantation in 2015 (rs[[3]])
+  # ## For th% treshold definition
+  # th <- 30
+  # while(th < 100){
+  #   # call the loss layer for threshold th
+  #   thed_gfc_data <- brick(paste0("gfc_data_",island,"_",th,"th.tif"))
+  #   # select the loss layer
+  #   loss <- thed_gfc_data[[which(thed_gfc_data@data@max > 15 & thed_gfc_data@data@max < 40)]]
+  #   # remove useless other stack of gfc layers
+  #   rm(thed_gfc_data)
+  #   # stack loss with plantation maps
+  #   rs <- stack(loss, po2000, po2015)
+  #   # run the computation in parallel with clusterR, as cells are processed one by one independently.
+  #   beginCluster() # uses by default detectedCores() - 1
+  #   clusterR(rs,
+  #            fun = calc, # note we use calc but this is equivalent to using overlay
+  #            args = list(f),
+  #            filename = paste0("lucfp_",island,"_",th,"th.tif"),
+  #            datatype = "INT1U",
+  #            overwrite = TRUE )
+  #   endCluster()
+  #   rm(loss)
+  #   th <- th + 30
+  # }
+  # # ~ 4500 seconds / threshold
+  # rm(po2000, po2015)
   #################################################################################################################################
   ##### PROJECT PALM-IMPUTABLE DEFORESTATION MAP #####
   #################################################################################################################################
   # This is necessary because we will need to make computations on this map within mills' catchment *areas*.
   # If one does not project this map, then catchment areas all have different areas while being defined with a common buffer.
-  th <- 30
-  while(th < 100){
-    lucfp <- raster(paste0("lucfp_",island,"_",th,"th.tif"))
-    #  beginCluster()
-    projectRaster(from = lucfp,
-                  crs = indonesian_crs,
-                  method = "ngb",
-                  filename = paste0("lucfp_",island,"_",th,"th_prj.tif"),
-                  datatype = "INT1U",
-                  overwrite = TRUE )
-    #  endCluster()
-    rm(lucfp)
-    th <- th + 30
+  parallel_project_lucfp <- function(ncores){
+    ## sequence over which to execute the task
+    thresholdS <- seq(from = 30, to = 90, by = 30)
+
+    ## read the input to the task
+    # it is task specific
+
+    ## define the task
+    project_lucfp <- function(threshold){
+      lucfp <- raster(paste0("lucfp_",island,"_",threshold,"th.tif"))
+      projectRaster(from = lucfp,
+                    crs = indonesian_crs,
+                    method = "ngb",
+                    filename = paste0("lucfp_",island,"_",threshold,"th_prj.tif"),
+                    datatype = "INT1U",
+                    overwrite = TRUE )
+    }
+
+    ## register cluster
+    registerDoParallel(cores = ncores)
+
+    ## define foreach object
+    foreach(th = thresholdS,
+            # .combine combine the outputs as a mere character list (by default)
+            .inorder = FALSE, # we don't care that the results be combine in the same order they were submitted
+            .multicombine = TRUE,
+            .export = c("island", "indonesian_crs"),
+            .packages = c("raster", "gfcanalysis", "rgdal")
+            ) %dopar% project_lucf(threshold = th)
   }
+
+  #### Execute it
+  parallel_project_lucfp(detectCores() - 1)
+    
+    
   # 13571 seconds
   # 12459 seconds
   # 11565 seconds
+  
+  
   #################################################################################################################################
   # now that we don't use cluster anymore, try to raise chunksize again
   # rasterOptions(chunksize = 3e+9)
@@ -444,6 +512,7 @@ within_CA_lucfp_panel <- function(island, parcel_size, catchment_radius){
     within <- st_is_within_distance(m.df_wide, mills_prj, dist = catchment_radius)
     m.df_wide <- m.df_wide %>% dplyr::filter(lengths(within) >0)
     m.df_wide <- m.df_wide %>% st_drop_geometry()
+    rm(within)
     ### 3. Reshaping to long format
     # make parcel id
     island_id <- if(island == "Sumatra"){1} else if(island == "Kalimantan"){2} else if (island == "Papua"){3}
