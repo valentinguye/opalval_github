@@ -1,9 +1,51 @@
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+# 
+# 
+#       BUILDING DATAFRAMES OF OUR OUTCOME VARIABLE: THE LAND USE CHANGE FROM FOREST TO PLANTATION (LUCFP)
+# 
+#   Inputs:   - georeferenced mills (from georeferencing works)                                           
+#             ---> IBS_UML_cs.dta                                                             
+#                                                                                                         
+#             - 2000 and 2015 oil palm plantations (Austin et al. 2017) for Sumatra, Kalimantan and Papua,
+#               pre-processed in prepare_palmoil_map.R                         
+#             ---> new_oilpalm_2000_WGS1984.tif 
+#             ---> new_oilpalm_2015_WGS1984.tif 
+#                                                                                                         
+#             (- Global Forest Change (Hansen et al. 2013) tiles downloaded from internet)                                      
+# 
+#   Outputs:  panel dataframes of 2001-2018 parcels,  
+#             for whole Indonesia (Sumatra, Kalimantan, Papua stacked), 
+#             for 3 forest definitions (30, 60, 90 percent forest cover).
+#             
+#             One such dataframe for each combination of parcel size (only 3x3km for now) and catchment radius (10, 30, 50km)
+#             ---> panel_Indonesia_3km_10CR.Rdata 
+#             ---> panel_Indonesia_3km_30CR.Rdata 
+#             ---> panel_Indonesia_3km_50CR.Rdata
+# 
+#   
+#   Actions:  This script consists of mainly three functions.  
+#             0. load needed packages; set working directory; set raster options; define the crs used throughout the script. 
+#                 /// !!! \\\ the chunksize and maxmemory raster options should be set accordingly with the machine used,  
+#                             considering that this script executes parallel functions using parallel::detectCores() - 1
+#                             For instance, here we set chunksize to 1Go so that our 3 working cores processed 3Go together. 
+#
+#             1. prepare_pixel_lucfp(island)
+# 
+#             2. aggregate_lucfp(island, parcel_size)
+# 
+#             3. to_panel_within_CR(island, parcel_size, catchment_radius)
+#
+#             Finally, functions are run and there outputs are merged across islands and forest thresholds.   
+# 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+
 
 rm(list = ls())
 
 ##### PACKAGES, WD, OBJECTS #####
 
-### PACKAGES
+### PACKAGES ###
 
 # sf need to be installed from source for lwgeom te be installed from source. 
 if (!require(sf)) install.packages("sf", source = TRUE)
@@ -45,9 +87,18 @@ library(snow)
 if (!require(gfcanalysis)) install.packages('gfcanalysis')
 library(gfcanalysis)
 
-### local working directory, just to shorten calls, using here. 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+### WORKING DIRECTORY ### 
 setwd(here("build/input/outcome_variables"))
-### INDONESIAN CRS
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+### RASTER OPTIONS ### 
+rasterOptions(chunksize = 1e+9,
+              timer = TRUE)
+
+### INDONESIAN CRS ### 
 #   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
 #   the Cylindrical Equal Area projection seems appropriate for Indonesia extending east-west along equator.
 #   According to https://spatialreference.org/ref/sr-org/8287/ the Proj4 is
@@ -55,31 +106,18 @@ setwd(here("build/input/outcome_variables"))
 #   which we center at Indonesian longitude with lat_ts = 0 and lon_0 = 115.0
 indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
 
-# risque de mal se passer avec l'écritute en fonction
-rasterOptions(chunksize = 1e+9,
-              timer = TRUE)
 
-# chunksize = 3Go and maxmemory = 5Go is for the hypothesis that each core will get these rasterOptions
-# and therefore we want to allow each of our 3 cores to process chunks of no more than 3Go, totalling to 9Go memory
-# and hence leaving some to the fourth core to do other things while computations run.
-# We assume here that maxmemory is given to each core. Therefore, we don't raise it too much bc we
-# don't want the first core to be able to process in memory a 10Go raster for instance, and the others are left
-# with very few memory left even for chunk by chunk processing...
-############################################################################################################
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
-#################################################################
-# Write prepare_deforestation script as a function of island
-# either Sumatra-Java, Kalimantan, Sulawesi and Papua-Maluku (?)
-#################################################################
 
-# note on rm in function: removes object in the function "frame" i.e. environment without
-# having to specify something (I tested it)
-
+##### PREPARE 30m PIXEL-LEVEL MAPS OF LUCFP ##### 
 
 prepare_pixel_lucfp <- function(island){
-  ##### DEFINE AREA OF INTEREST (AOI) #####
-  ############################################################################################################
-
+  
+  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+  #### Define area of interest (AOI) ####
+  
     # read data.frame of cross-sectional mills with their coordinates.
     mills <- read.dta13(here("build/input/IBS_UML_cs.dta"))
 
@@ -112,26 +150,33 @@ prepare_pixel_lucfp <- function(island){
 
 
     rm(mills, mills_prj, mills_ca, aoi)
+    # note on rm in function: removes object in the function "frame" i.e. environment without
+    # having to specify something (I tested it)
 
-
-
-    ##### DOWNLOAD APPROPRIATE HANSEN DEFORESTATION DATA #####
-    #########################################################################################################################
+    
+    
+    ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+    #### Download GFC data ####
 
     #define where all tiles are going to be stored
     data_folder <- paste0(getwd(), "/GFC_tiles")
 
-    #Calculate tiles needed to cover the AOI
+    # Calculate tiles needed to cover the AOI
     tiles <- calc_gfc_tiles(aoi_sp)
-    length(tiles) # 11 (the upper right tile is not needed with the union and not the bbox of all CAs)
+    # length(tiles) 
 
     # version of GFC used here.
     gfc_version <- "GFC-2018-v1.6"
-    # //!\\ script is not written flexibly to adjust for other versions of GFC. One should check every "18" entries for instance.
+    # //!\\ this script is not written flexibly to adjust for other versions of GFC. One should check every "18" entries in this script for instance. 
 
     #download tiles - with all layers otherwise later extract_gfc does not work
-    download_tiles(tiles, data_folder, images = c("treecover2000", "lossyear", "gain", "datamask"), dataset = gfc_version)
+    download_tiles(tiles, 
+                   output_folder = data_folder, 
+                   images = c("treecover2000", "lossyear", "gain", "datamask"), 
+                   dataset = gfc_version)
 
+    rm(tiles)
+    
     # extract gfc data (can only extract all layers with default stack=change)
     # to better understand extract_gfc see https://rdrr.io/cran/gfcanalysis/src/R/extract_gfc.R
     extract_gfc(aoi_sp, data_folder,
@@ -140,28 +185,13 @@ prepare_pixel_lucfp <- function(island){
                 dataset = gfc_version,
                 filename = paste0("gfc_data_",island,".tif"),
                 overwrite = TRUE )
-    # extract télécharge les tiles qui couvrent notre AOI
-    # et ensuite pour ces tiles là il n'y a aucun NA, dans le résultat du extract, même
-    # pour les pixels en dehors de l'AOI. En revanche il y a des NAs
-    # dans la partie du raster couverte pas un tile qui ne couvre pas l'AOI.
-    # donc si on prend un bbox comme aoi on n'a pas de NA.
-    # faire ça par île ?
 
 
-    ###
-    # to extract and project in the same time (AOI_sp should be projected) but did not work, I don't know why.
-    # extract_gfc(AOI_sp, data_folder, stack = "change", to_UTM = TRUE,
-    # dataset = "GFC-2017-v1.5", filename = "gfc_data_prj.tif", overwrite = TRUE)
-    # defo_e <- raster("gfc_data_prj.tif")
-    # crs(defo_e)
-    ###
-    ########################################################################################################################
+    
+    ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+    #### Threshold GFC data based on a specified percent cover threshold: 30%, 60% and 90% here. ####
 
-
-    ##### THRESHOLD the GFC data based on a specified percent cover threshold: 30%, 60% and 90% here.
-    ########################################################################################################################
-
-    #### Function description
+    ### Function description
     # Computes (in particular) a forest loss layer based on what pixel-level canopy cover percentage is the threshold
     # between forest and non-forest state in 2000.
     # The task is parallelly executed for 3 different threshold values.
@@ -184,7 +214,7 @@ prepare_pixel_lucfp <- function(island){
               # .combine combine the outputs as a mere character list (by default)
               .inorder = FALSE, # we don't care that the results be combine in the same order they were submitted
               .multicombine = TRUE,
-              .export = c("gfc_data", "island"),
+              .export = c("island"),
               .packages = c("raster", "gfcanalysis", "rgdal")
       ) %dopar% threshold_gfc(gfc_data,
                               forest_threshold=th,
@@ -194,27 +224,31 @@ prepare_pixel_lucfp <- function(island){
 
     #### Execute it
     parallel_threshold_gfc(detectCores() - 1)
-
-  #### ALIGN PLANTATION MAPS ON FOREST LOSS MAPS #####
-  #######################################################################################################################
-  ALIGN PO ON LOSS: po is disaggregated and will match loss res, ext, and crs. Both are unprojected at this stage.
-  po # resolution is 0.002277, 0.002277
-  loss # resolution is 0.00030, 0.00025
-  first crop po maps to the current aoi (island bbox) to match res.
-  then projectRaster to match res - disaggregate before is not necessary (yields the same result)
-  ## read gfc_data, the target of the align operations
+    
+    
+  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+  #### Align plantation maps on GFC maps ####
+    
+  # po maps are disaggregated and will match loss res, ext, and crs. Both are unprojected at this stage.
+  # po resolution is 0.002277, 0.002277
+  # loss resolution is 0.00030, 0.00025
+  # first crop po maps to the current aoi (island bbox) to match res.
+  # then projectRaster to match res - disaggregate before is not necessary (yields the same result)
+  
+  ### read gfc_data, the target of the align operations
   gfc_data <- brick(paste0("gfc_data_",island,".tif"))
+  
   ### 2000 plantations
   po2000 <- raster(here("build/input/PALMOIL/new_oilpalm_2000_WGS1984.tif"))
-  # match extent
+  
+  ## match extent
   crop(po2000, y = gfc_data,
        filename = paste0("./oilpalm_2000_",island,"_croped.tif"),
        datatype = "INT1U",
        overwrite = TRUE)
   # 3 minutes, not even printed
-  # reduce chunksize to 1go otherwise the parallel projectRaster crashes
-  # rasterOptions(chunk_size = 1e+9)
-  # match resolution.
+  
+  ## match resolution.
   po2000 <- raster(paste0("./oilpalm_2000_",island,"_croped.tif"))
   # we run it within a cluster because according to ?clusterR
   # "projectRaster has a build-in capacity for clustering that is automatically used if beginCluster() has been called."
@@ -227,15 +261,17 @@ prepare_pixel_lucfp <- function(island){
   #endCluster()
   rm(po2000)
   # 18700 seconds
+  
   ### 2015 plantations
   po2015 <- raster(here("build/input/PALMOIL/new_oilpalm_2015_WGS1984.tif"))
-  # match extent
+  
+  ## match extent
   crop(po2015, y = gfc_data,
        filename = paste0("./oilpalm_2015_",island,"_croped.tif"),
        datatype = "INT1U",
        overwrite = TRUE)
-  # less than a minute, not even printed
-  # match resolution
+
+  ## match resolution
   po2015 <- raster(paste0("./oilpalm_2015_",island,"_croped.tif"))
   # beginCluster()
   projectRaster(from = po2015, to = gfc_data,
@@ -247,18 +283,23 @@ prepare_pixel_lucfp <- function(island){
   # 9436 seconds
   rm(po2015)
   rm(gfc_data)
-  ########################################################################################################################
-  ##### OVERLAY FOREST LOSS AND OIL PALM PLANTATIONS #####
-  ########################################################################################################################
+  
+  
+  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+  #### Overlay forest loss and oil palm plantation maps ####
+  
   # We want to keep forest loss pixels only within 2015 plantations in order to induce forest conversion to plantation,
   # BUT outside 2000 plantations, in order not to count plantation renewals as forest conversion to plantation.
   # po maps are binary with 1 meaning plantation in 2015 (or 2000 resp.))
+  
   po2000 <- raster(paste0("./oilpalm_2000_",island,"_aligned.tif"))
   po2015 <- raster(paste0("./oilpalm_2015_",island,"_aligned.tif"))
+  
   # overlay function
-  f <- function(rs){rs[[1]]*(1-rs[[2]])*rs[[3]]}
+  overlay_maps <- function(rs){rs[[1]]*(1-rs[[2]])*rs[[3]]}
   # multiplies a cell of forest loss (rs[[1]]) by 0 if it it is a plantation in 2000 (rs[[2]]) or if is not a plantation in 2015 (rs[[3]])
-  ## For th% treshold definition
+  
+  ### For each threshold, overlay forest loss map with plantations maps in a clusterR setting 
   th <- 30
   while(th < 100){
     # call the loss layer for threshold th
@@ -267,13 +308,15 @@ prepare_pixel_lucfp <- function(island){
     loss <- thed_gfc_data[[which(thed_gfc_data@data@max > 15 & thed_gfc_data@data@max < 40)]]
     # remove useless other stack of gfc layers
     rm(thed_gfc_data)
-    # stack loss with plantation maps
+    
+    # stack loss with plantation maps (necessary for clusterR)
     rs <- stack(loss, po2000, po2015)
     # run the computation in parallel with clusterR, as cells are processed one by one independently.
     beginCluster() # uses by default detectedCores() - 1
     clusterR(rs,
-             fun = calc, # note we use calc but this is equivalent to using overlay
-             args = list(f),
+             fun = calc, # note we use calc but this is equivalent to using overlay 
+             # (but more appropriate to the input being a stack)
+             args = list(overlay_maps),
              filename = paste0("lucfp_",island,"_",th,"th.tif"),
              datatype = "INT1U",
              overwrite = TRUE )
@@ -282,15 +325,19 @@ prepare_pixel_lucfp <- function(island){
     th <- th + 30
   }
   # ~ 4500 seconds / threshold
-  rm(po2000, po2015)
+  rm(po2000, po2015, overlay_maps)
   
   
-  #################################################################################################################################
-  ##### PROJECT PALM-IMPUTABLE DEFORESTATION MAP #####
-  #################################################################################################################################
+  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+  #### Project LUCFP ####
+
   # This is necessary because we will need to make computations on this map within mills' catchment *areas*.
   # If one does not project this map, then catchment areas all have different areas while being defined with a common buffer.
+  
+  ### Function description
+  # Project to Indonesian crs, in parallel, for each threshold definition. 
   parallel_project_lucfp <- function(ncores){
+    
     ## sequence over which to execute the task
     thresholdS <- seq(from = 30, to = 90, by = 30)
 
@@ -321,7 +368,7 @@ prepare_pixel_lucfp <- function(island){
             ) %dopar% project_lucfp(threshold = th)
   }
 
-  #### Execute it
+  ### Execute it
   parallel_project_lucfp(detectCores() - 1)
     
     
@@ -330,23 +377,24 @@ prepare_pixel_lucfp <- function(island){
   # 11565 seconds
   
   
-  #################################################################################################################################
-  # now that we don't use cluster anymore, try to raise chunksize again
-  # rasterOptions(chunksize = 3e+9)
-  ##### SPLIT THE SINGLE LAYER defo RASTER INTO ANNUAL LAYERS. #####
-  #################################################################################################################################
-  #### Function description
+  ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+  #### Split LUCFP to annual layers ####
+
+  ### Function description
   # parallel_split has for input the single lucfp layer where each pixel has a value corresponding to the year when a lucfp event occured;
   # it outputs annual layers in each of which pixels are either 1 if a lucfp event occured that year, and 0 else.
   # the tasks are year specific and independent across years, therefore they are executed parallely over years.
   parallel_split <- function(th, ncores){
+    
     ## sequence over which to execute the task.
     # We attribute the tasks to CPU "workers" at the annual level and not at the threshold level.
     # Hence, if a worker is done with its annual task before the others it can move on to the next one and workers' labor is maximized wrt.
     # attributing tasks at the threshold level.
     years <- seq(from = 2001, to = 2018, by = 1)
+    
     ## read the input to the task
     # is done within each task because it is each time different here.
+    
     ## define the task
     annual_split <- function(time, threshold){
       # define process
@@ -365,9 +413,11 @@ prepare_pixel_lucfp <- function(island){
       # remove process temporary files
       unlink(file.path(paste0(process,"_Tmp")), recursive = TRUE)
     }
+    
     ## register cluster
     registerDoParallel(cores = ncores)
-    # define foreach object.
+    
+    ## define foreach object.
     foreach(t = 1:length(years),
             # .combine combine the outputs as a mere character list (by default)
             .inorder = FALSE, # we don't care that the results be combine in the same order they were submitted
@@ -376,7 +426,8 @@ prepare_pixel_lucfp <- function(island){
             .packages = c("dplyr", "raster", "rgdal")
     ) %dopar%  annual_split(time = t, threshold = th)
   }
-  #### Execute it for each forest definition
+  
+  ### Execute it for each forest definition
   th <- 30
   while(th < 100){
     parallel_split(th, detectCores() - 1) # ~500 seconds / annual layer
@@ -384,9 +435,11 @@ prepare_pixel_lucfp <- function(island){
   }
   return(print("end"))
 }
-#################################################################################################################################
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 ##### AGGREGATE THE PIXELS TO A GIVEN PARCEL SIZE. #####
-#################################################################################################################################
+
 aggregate_lucfp <- function(island, parcel_size){
   #### Function description
   # The function has for inputs annual layers of lucfp events at the pixel level.
@@ -458,8 +511,8 @@ aggregate_lucfp <- function(island, parcel_size){
   }
 }
 ##### convert to dataframe. #####
-#################################################################################################
-within_CA_lucfp_panel <- function(island, parcel_size, catchment_radius){
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+to_panel_within_CR <- function(island, parcel_size, catchment_radius){
   #### Function description
   ### parallel_raster_to_df converts the raster bricks of annual layers of parcels to a panel dataframe.
   ### It does that in parallel for each threshold definition.
@@ -567,9 +620,9 @@ within_CA_lucfp_panel <- function(island, parcel_size, catchment_radius){
     threshold <- threshold + 30
   }
 }
-#######################################################################################################
-##### EXECUTE FUNCTIONS #####
-#######################################################################################################
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+##### EXECUTE FUNCTIONS AND MERGE THE OUTPUTS #####
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 #### Choose an island between "Sumatra", "Kalimantan" or "Papua"
 Island <- "Papua"
 #### Prepare a 30m pixel map of lucfp for that Island
@@ -583,7 +636,7 @@ aggregate_lucfp(island = Island,
 CR <- 10000 # i.e. 10km radius
 while(CR < 60000){
   tic()
-  within_CA_lucfp_panel(island = Island,
+  to_panel_within_CR(island = Island,
                         parcel_size = PS,
                         catchment_radius = CR)
   toc()
@@ -620,5 +673,83 @@ while(catchment_radius < 60000){
   catchment_radius <- catchment_radius + 20000
 }
 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
-###
+##### DIVERSE NOTES #####
+
+### ON EXTRACT_GFC
+# extract télécharge les tiles qui couvrent notre AOI
+# et ensuite pour ces tiles là il n'y a aucun NA, dans le résultat du extract, même
+# pour les pixels en dehors de l'AOI. En revanche il y a des NAs
+# dans la partie du raster couverte pas un tile qui ne couvre pas l'AOI.
+# donc si on prend un bbox comme aoi on n'a pas de NA.
+
+# to extract and project in the same time (AOI_sp should be projected) but did not work, I don't know why.
+# extract_gfc(AOI_sp, data_folder, stack = "change", to_UTM = TRUE,
+# dataset = "GFC-2017-v1.5", filename = "gfc_data_prj.tif", overwrite = TRUE)
+# defo_e <- raster("gfc_data_prj.tif")
+# crs(defo_e)
+
+
+
+# we do not mask with water mask from gfc because there are many other reasons why 
+# deforestation cannot occur (cities, mountains) and these are taken into account in FE 
+# and the distributional effect of this on our outcome variabel will be captured 
+# by the poisson model. 
+
+# Note also that For Sumatra at least, the northern part of the most north CA is not covered 
+# by Austin data. Those NAs are simply not converted to the dataframe. This is not an 
+# issue because the unit of observation is not the CA (one of which would not be the same size)
+# but the parcel. In other words we don't bother that some CA are not fully observed in our maps. 
+
+# we do not reclassify NAs to 0 after the overlay between loss and plantation maps 
+# because these NAs are turned to 0 in the split anyway. They are only at the margin (i.e. they could be trimed)
+#lucfp30 <- raster("lucfp_30th.tif")
+# clusterR(lucfp30, 
+#          fun = reclassify, 
+#          args = list(rcl = cbind(NA,0)),
+#          filename = "lucfp_30th.tif",
+#          datatype = "INT1U",
+#          overwrite = TRUE )
+
+
+
+
+
+#  brick after a normal aggregation (no foreach)
+# # read in the 18 layers and brick them
+# layers_paths <- list.files(path = "./annual_parcels", pattern = paste0("parcels_",PS/1000,"km_",threshold, "th_"), full.names = TRUE) %>% as.list()
+#   #layers_paths <- list.files(path = "./annual_maps", pattern = paste0("defo_",threshold, "th_"), full.names = TRUE) %>% as.list()
+#   parcels_brick <- layers_paths %>% brick()
+#   
+#   #write the brick
+#   writeRaster(parcels_brick, 
+#               filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",threshold,"th.tif"), 
+#               overwrite = TRUE)
+#   
+#   
+#   rm(parcels_brick)
+
+
+
+# rationale if aggregation is with mean: 
+# Since in each annual map, original pixels are either 1 or 0 valued (conversion from forest to op plantation remotely sensed 
+# for that pixel that year or not) and each pixel is the same area, the mean value of a group of pixels is 
+# the ratio of the area deforested over the parcel area. This is refered to as the percentage of deforestation. 
+
+
+
+############################################################################################################
+#   Rather than calling all relevant gfc tiles, mosaicing, and masking with catchment areas, we will first 
+#   define an AOI corresponding to catchment areas (CAs) and load only Hansen's maps that cover them.     
+#   BUT, the extract_gfc returns data for larger areas than the only AOI provided (we could see Malaysia).
+#   We do it this way still. 
+#
+#   We don't use gfc_stats because we want to keep information at the pixel level and not at the aoi's in order 
+#   to overlay it with plantations. 
+############################################################################################################
+
+
+### MASK ? is not useful because reclassifying NAs to 0s does not make the file lighter. 
+# (and croping more is not possible.) 
+
