@@ -43,7 +43,7 @@
 
 rm(list = ls())
 
-##### PACKAGES, WD, OBJECTS #####
+##### 0. PACKAGES, WD, OBJECTS #####
 
 ### PACKAGES ###
 
@@ -111,7 +111,7 @@ indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 
-##### PREPARE 30m PIXEL-LEVEL MAPS OF LUCFP ##### 
+##### 1. PREPARE 30m PIXEL-LEVEL MAPS OF LUCFP ##### 
 
 prepare_pixel_lucfp <- function(island){
   
@@ -436,35 +436,41 @@ prepare_pixel_lucfp <- function(island){
   return(print("end"))
 }
 
+
+
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
-##### AGGREGATE THE PIXELS TO A GIVEN PARCEL SIZE. #####
+
+##### 2. AGGREGATE THE PIXELS TO A GIVEN PARCEL SIZE. #####
 
 aggregate_lucfp <- function(island, parcel_size){
-  #### Function description
+  
+  ### Function description
   # The function has for inputs annual layers of lucfp events at the pixel level.
   # It aggregates these pixels to a parcel size defined by parcel_size (in meters).
   # The aggregation operation is the sum of the pixel lucfp events.
   # Each annual aggregation is tasked in parallel.
   parallel_aggregate <- function(th, ncores){
+    
     ## sequence over which to execute the task.
     # We attribute the tasks to CPU "workers" at the annual level and not at the threshold level.
     # Hence, if a worker is done with its annual task before the others it can move on to the next one and workers' labor is maximized wrt.
     # attributing tasks at the threshold level.
     years <- seq(from = 2001, to = 2018, by = 1)
+    
     ## read the input to the task
     # is done within each task because it is each time different here.
+    
     ## define the task
     annual_aggregate <- function(time, threshold){
-      ## Define which process (year and threshold) we are in:
+      # Define which process (year and threshold) we are in:
       processname <- file.path(paste0("./annual_maps/lucfp_",island,"_",threshold,"th_", years[time],".tif"))
-      #create unique filepath for temp directory
+      #create process-specific temp directory
       dir.create(paste0(processname,"_Tmp"), showWarnings = FALSE)
-      # #set temp directory
+      #set temp directory
       rasterOptions(tmpdir=file.path(paste0(processname,"_Tmp")))
       # read in the indonesia wide raster of lucfp at a given time and for a given threshold.
       annual_defo <- raster(processname)
-      ## Aggregation operation
       # aggregate it from the 30m cells to parcel_sizem cells with mean function.
       raster::aggregate(annual_defo, fact = c(parcel_size/res(annual_defo)[1], parcel_size/res(annual_defo)[2]),
                         expand = FALSE,
@@ -476,15 +482,16 @@ aggregate_lucfp <- function(island, parcel_size){
                         datatype = "INT4U", # because the sum may go up to ~ 10 000 with parcel_size = 3000,
                         # but to more than 65k with parcel_size = 10000 so INT4U will be necessary;
                         overwrite = TRUE)
-      ## Deal with memory and stockage issues:
       #removes entire temp directory without affecting other running processes (but there should be no temp file now)
       unlink(file.path(paste0(processname,"_Tmp")), recursive = TRUE)
       #unlink(file.path(tmpDir()), recursive = TRUE)
-      ## return the path to this parcels file
+      # return the path to this parcels file
       return(file.path(paste0("./annual_parcels/parcels_",island,"_",parcel_size/1000,"km_",threshold,"th_",years[time],".tif")))
     }
+    
     ## register cluster
     registerDoParallel(cores = ncores)
+    
     ##  define foreach object.
     foreach(t = 1:length(years),
             # .combine combine the outputs as a mere character list (by default)
@@ -494,7 +501,8 @@ aggregate_lucfp <- function(island, parcel_size){
             .packages = c("raster", "rgdal")
     ) %dopar% annual_aggregate(time = t, threshold = th)
   }
-  #### Execute the function to compute the RasterBrick object of 18 annual layers for each forest definition threshold
+  
+  ### Execute the function to compute the RasterBrick object of 18 annual layers for each forest definition threshold
   th <- 30
   while(th < 100){
     # run the computation, that writes the layers and return a list of their paths
@@ -510,25 +518,31 @@ aggregate_lucfp <- function(island, parcel_size){
     th <- th + 30
   }
 }
-##### convert to dataframe. #####
+
+
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+
+##### 3. CONVERT TO A DATAFRAME THE PARCELS WITHIN A GIVEN CATCHMENT RADIUS  #####
+
 to_panel_within_CR <- function(island, parcel_size, catchment_radius){
-  #### Function description
-  ### parallel_raster_to_df converts the raster bricks of annual layers of parcels to a panel dataframe.
-  ### It does that in parallel for each threshold definition.
-  ### The tasks that are executed (by threshold_raster_to_df) are:
-  ## 1. masking the brick of parcels of a given size (parcel_size) on a given island with the maximal CA of mills on that island;
-  ## 2. selecting only the parcels that are within a given catchment radius.
-  ## 3. reshaping the values in these parcels to a long format panel dataframe
-  #  parallel_raster_to_df <- function(ncores){
-  ## sequence over which to execute the task.
-  #    thresholdS <- seq(from = 30, to = 90, by = 30)
-  ## define the task
+  
+  ### Function description
+  # threshold_raster_to_df converts the raster bricks of annual layers of parcels to a panel dataframe.
+  # This is executed for each threshold, iteratively and not in parallel (not necessary because quite fast)
+  # The tasks are:
+  # 1. masking the brick of parcels of a given size (parcel_size) on a given island with the maximal CA of mills on that island;
+  # 2. selecting only the parcels that are within a given catchment radius.
+  # 3. reshaping the values in these parcels to a long format panel dataframe
   threshold_raster_to_df <- function(threshold){
+    
     years <- seq(from = 2001, to = 2018, by = 1)
+    
     ## 1. Masking.
     # Probably more efficient as the st_is_within does not need to be executed over all Indonesian cells but only those within the largest catchment_radius.
-    ## Make the mask
+    
+    # Make the mask
     mills <- read.dta13(here("build/input/IBS_UML_cs.dta"))
     mills <- mills[mills$island_name == island,]
     #turn into an sf object.
@@ -549,7 +563,7 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
     # keep mills_prj we need it below
     rm(total_ca, mills_ca, mills)
     
-    ## Mask
+    # Mask
     parcels_brick <- brick(paste0("./bricked_parcels/parcels_",island,"_",parcel_size/1000,"km_",threshold,"th.tif"))
     mask(x = parcels_brick, mask = total_ca_sp,
          filename = paste0("./bricked_parcels/m_parcels_",island,"_",parcel_size/1000,"km_",threshold,"th.tif"),
@@ -560,13 +574,14 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
     
     ## 2. Selecting parcels within a given distance to a mill at least one year
     # (i.e. the parcel is present in the dataframe in all years even if it is within say 50km of a mill only since 2014)
-    ## Turn the masked raster to a sf dataframe
+    
+    # Turn the masked raster to a sf dataframe
     parcels_brick <- brick(paste0("./bricked_parcels/m_parcels_",island,"_",parcel_size/1000,"km_",threshold,"th.tif"))
     m.df_wide <- raster::as.data.frame(parcels_brick, na.rm = TRUE, xy = TRUE, centroids = TRUE)
     m.df_wide <- m.df_wide %>% dplyr::rename(lon = x, lat = y)
     m.df_wide <- st_as_sf(m.df_wide, coords = c("lon", "lat"), remove = FALSE, crs = indonesian_crs)
     
-    ## Remove here parcels that are not within the catchment area of a given size (defined by catchment radius)
+    # Remove here parcels that are not within the catchment area of a given size (defined by catchment radius)
     # coordinates of all mills (crs is indonesian crs, unit is meter)
     within <- st_is_within_distance(m.df_wide, mills_prj, dist = catchment_radius)
     m.df_wide <- m.df_wide %>% dplyr::filter(lengths(within) >0)
@@ -575,7 +590,7 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
     rm(within, parcels_brick)
     
     
-    ### 3. Reshaping to long format
+    ## 3. Reshaping to long format
     # make parcel id
     island_id <- if(island == "Sumatra"){1} else if(island == "Kalimantan"){2} else if (island == "Papua"){3}
     m.df_wide$parcel_id <- paste0(island_id, c(1:nrow(m.df_wide))) %>% as.numeric()
@@ -599,83 +614,95 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
     saveRDS(m.df,
             file = paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_",threshold,"th.Rdata"))
   }
-  ## register cluster
-  #   registerDoParallel(cores = ncores)
-  #
-  #   ## define foreach object
-  #   foreach(th = thresholdS ,
-  #           # .combine combine the outputs as a mere character list (by default)
-  #           .inorder = FALSE, # we don't care that the results be combine in the same order they were submitted
-  #           .multicombine = TRUE,
-  #           .export = c("threshold_raster_to_df", "island", "parcel_size", "catchment_radius", "indonesian_crs"),
-  #           .packages = c("here", "dplyr", "raster", "sf", "sp", "rgdal", "readstata13", "data.table", "stats")
-  #   ) %dopar% threshold_raster_to_df(threshold = th)
-  # }
-  #
-  #### Execute it
-  #parallel_raster_to_df(detectCores() - 1)
+
+  ### Execute it
   threshold <- 30
   while(threshold < 100){
     threshold_raster_to_df(threshold)
     threshold <- threshold + 30
   }
 }
+
+
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
 ##### EXECUTE FUNCTIONS AND MERGE THE OUTPUTS #####
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
-#### Choose an island between "Sumatra", "Kalimantan" or "Papua"
+
+#### Execute the functions ####
+# Only if their outputs have not been already computed
+
+### Prepare a 30m pixel map of lucfp for that Island
+# Choose an island between "Sumatra", "Kalimantan" or "Papua"
 Island <- "Papua"
-#### Prepare a 30m pixel map of lucfp for that Island
-prepare_pixel_lucfp(Island)
-### Aggregate this Island map to different parcel sizes (3km, 6km and 9km for instance)
-PS <- 3000
-# while(PS < 10000){
-aggregate_lucfp(island = Island,
-                parcel_size = PS)
-## For that Island and for each aggregation factor, extract panels of parcels within different catchment area sizes (radius of 10km, 30km and 50km)
-CR <- 10000 # i.e. 10km radius
-while(CR < 60000){
-  tic()
-  to_panel_within_CR(island = Island,
-                        parcel_size = PS,
-                        catchment_radius = CR)
-  toc()
-  CR <- CR + 20000
+
+if(!file.exists(paste0("./annual_maps/lucfp_",Island,"_90th_2018.tif"))){
+  
+  prepare_pixel_lucfp(Island)
 }
 
-### Gather the lucfp variables for each parcel_size and catchment_radius combinations. 
-parcel_size <- 3000  
-catchment_radius <- 10000 # i.e. 10km radius
-while(catchment_radius < 60000){
-  
-  # For each island, join columns of lucfp variable for different forest thresholds. 
-  df_list <- list()
-  islandS <- c("Sumatra", "Kalimantan", "Papua")
-  for(island in islandS){
+### Aggregate this Island map to a chosen parcel size (3km, 6km and 9km for instance)
+PS <- 3000
 
-    df30 <- readRDS(paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_30th.Rdata"))
-    df60 <- readRDS(paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_60th.Rdata"))
-    df90 <- readRDS(paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_90th.Rdata"))
+if(!file.exists(paste0("./bricked_parcels/parcels_",Island,"_",PS/1000,"km_90th.tif"))){
+  
+  aggregate_lucfp(island = Island,
+                  parcel_size = PS)
+}
+
+### For that Island and for each aggregation factor, extract panels of parcels within different catchment area sizes 
+# (radius of 10km, 30km and 50km)
+CR <- 10000 # i.e. 10km radius
+
+if(!file.exists(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.Rdata"))){
+
+  while(CR < 60000){
+
+    to_panel_within_CR(island = Island,
+                          parcel_size = PS,
+                          catchment_radius = CR)
+    CR <- CR + 20000
+  }
+}
+
+#### Gather the lucfp variables for each parcel_size and catchment_radius combinations. ####
+PS <- 3000  
+CR <- 10000 # i.e. 10km radius
+
+while(CR < 60000){
+  
+  # For each Island, join columns of lucfp variable for different forest thresholds. 
+  df_list <- list()
+  IslandS <- c("Sumatra", "Kalimantan", "Papua")
+  for(Island in IslandS){
+
+    df30 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_30th.Rdata"))
+    df60 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_60th.Rdata"))
+    df90 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.Rdata"))
     
     df60 <- dplyr::select(df60, -lon, -lat)
     df <- inner_join(df30, df60, by = c("parcel_id", "year"))
     df90 <- dplyr::select(df90, -lon, -lat)
     
-    df_list[[match(island, islandS)]] <- inner_join(df, df90, by = c("parcel_id", "year"))
+    df_list[[match(Island, IslandS)]] <- inner_join(df, df90, by = c("parcel_id", "year"))
   }
   
-  # stack the three islands together
+  # stack the three Islands together
   indo_df <- rbind(df_list[[1]], df_list[[2]], df_list[[3]])
   
-  saveRDS(indo_df, paste0("./dataframes/panel_Indonesia_",parcel_size/1000,"km_",catchment_radius/1000,"CR.Rdata"))
+  saveRDS(indo_df, paste0("./dataframes/panel_Indonesia_",PS/1000,"km_",CR/1000,"CR.Rdata"))
   
   rm(indo_df, df_list)
-  catchment_radius <- catchment_radius + 20000
+  CR <- CR + 20000
 }
 
+
+
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
-##### DIVERSE NOTES #####
+##### NOTES #####
 
 ### ON EXTRACT_GFC
 # extract télécharge les tiles qui couvrent notre AOI
@@ -739,7 +766,6 @@ while(catchment_radius < 60000){
 
 
 
-############################################################################################################
 #   Rather than calling all relevant gfc tiles, mosaicing, and masking with catchment areas, we will first 
 #   define an AOI corresponding to catchment areas (CAs) and load only Hansen's maps that cover them.     
 #   BUT, the extract_gfc returns data for larger areas than the only AOI provided (we could see Malaysia).
@@ -747,7 +773,6 @@ while(catchment_radius < 60000){
 #
 #   We don't use gfc_stats because we want to keep information at the pixel level and not at the aoi's in order 
 #   to overlay it with plantations. 
-############################################################################################################
 
 
 ### MASK ? is not useful because reclassifying NAs to 0s does not make the file lighter. 
