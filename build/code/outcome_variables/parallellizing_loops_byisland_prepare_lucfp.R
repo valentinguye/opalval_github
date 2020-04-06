@@ -475,9 +475,8 @@ aggregate_lucfp <- function(island, parcel_size){
       raster::aggregate(annual_defo, fact = c(parcel_size/res(annual_defo)[1], parcel_size/res(annual_defo)[2]),
                         expand = FALSE,
                         fun = sum,
-                        na.rm = FALSE, # NA cells are in margins if FALSE, aggregations at margins that use NA (if there are NA at margin)
-                        # are discarded because the sum would be spurious as it would count all NA as 0s while
-                        # it is not necessary the case.
+                        na.rm = FALSE, # NA cells are in margins, see the NOTES part. If FALSE, aggregations at margins that use NA 
+                        # are discarded because the sum would be spurious as it would count all NA as 0s while it is not necessary the case.
                         filename = paste0("./annual_parcels/parcels_",island,"_",parcel_size/1000,"km_",threshold,"th_",years[time],".tif"),
                         datatype = "INT4U", # because the sum may go up to ~ 10 000 with parcel_size = 3000,
                         # but to more than 65k with parcel_size = 10000 so INT4U will be necessary;
@@ -703,6 +702,7 @@ while(CR < 60000){
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 ##### NOTES #####
+# Not necessarily relevant 
 
 ### ON EXTRACT_GFC
 # extract télécharge les tiles qui couvrent notre AOI
@@ -717,8 +717,13 @@ while(CR < 60000){
 # defo_e <- raster("gfc_data_prj.tif")
 # crs(defo_e)
 
+#   We don't use gfc_stats because we want to keep information at the pixel level and not at the aoi's in order 
+#   to overlay it with plantations.
 
 
+
+
+### GFC mask 
 # we do not mask with water mask from gfc because there are many other reasons why 
 # deforestation cannot occur (cities, mountains) and these are taken into account in FE 
 # and the distributional effect of this on our outcome variabel will be captured 
@@ -729,8 +734,14 @@ while(CR < 60000){
 # issue because the unit of observation is not the CA (one of which would not be the same size)
 # but the parcel. In other words we don't bother that some CA are not fully observed in our maps. 
 
-# we do not reclassify NAs to 0 after the overlay between loss and plantation maps 
-# because these NAs are turned to 0 in the split anyway. They are only at the margin (i.e. they could be trimed)
+
+
+
+### NAs
+# The forest loss and aligned plantations maps don't have NAs
+# But once overlaid, some NAs are produced at the margins (because they don't perfectly align)
+# These NAs are not removed (trimmed) or reclassified. 
+# They disappear when 
 #lucfp30 <- raster("lucfp_30th.tif")
 # clusterR(lucfp30, 
 #          fun = reclassify, 
@@ -738,7 +749,6 @@ while(CR < 60000){
 #          filename = "lucfp_30th.tif",
 #          datatype = "INT1U",
 #          overwrite = TRUE )
-
 
 
 
@@ -753,28 +763,17 @@ while(CR < 60000){
 #   writeRaster(parcels_brick, 
 #               filename = paste0("./bricked_parcels/parcels_",PS/1000,"km_",threshold,"th.tif"), 
 #               overwrite = TRUE)
-#   
-#   
 #   rm(parcels_brick)
 
 
 
-# rationale if aggregation is with mean: 
+### rationale if aggregation is with mean: 
 # Since in each annual map, original pixels are either 1 or 0 valued (conversion from forest to op plantation remotely sensed 
 # for that pixel that year or not) and each pixel is the same area, the mean value of a group of pixels is 
 # the ratio of the area deforested over the parcel area. This is refered to as the percentage of deforestation. 
 
 
 
-#   Rather than calling all relevant gfc tiles, mosaicing, and masking with catchment areas, we will first 
-#   define an AOI corresponding to catchment areas (CAs) and load only Hansen's maps that cover them.     
-#   BUT, the extract_gfc returns data for larger areas than the only AOI provided (we could see Malaysia).
-#   We do it this way still. 
-#
-#   We don't use gfc_stats because we want to keep information at the pixel level and not at the aoi's in order 
-#   to overlay it with plantations. 
-
-
-### MASK ? is not useful because reclassifying NAs to 0s does not make the file lighter. 
-# (and croping more is not possible.) 
+### MASK ? is not useful because reclassifying NAs to 0s does not make the file lighter (NA is stored in a large value 
+# see NAvalue() and ?datatype)
 
