@@ -51,7 +51,7 @@ setwd(here("analysis/input"))
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 ### RASTER OPTIONS ### 
-rasterOptions(chunksize = 1e+9,
+rasterOptions(chunksize = 2e+9,
               timer = TRUE)
 
 ### INDONESIAN CRS ### 
@@ -103,8 +103,8 @@ island_sf_prj <- st_transform(island_sf, crs = indonesian_crs)
 
 
 ##### Forest cover in 2000 ##### 
-island <- "Sumatra"
-th <- 30
+# island <- "Sumatra"
+# threshold <- 30
 
 make_stats_fc2000 <- function(island, threshold){
   
@@ -180,7 +180,7 @@ make_stats_fc2000 <- function(island, threshold){
   # ibs_ca[[50]] %>% plot(add = T, col = "blue")
   # ibs_ca[[10]] %>% plot(add = T, col = "red")
   
-uml %>% st_geometry %>% plot(add = T, col = "green")
+  #uml %>% st_geometry %>% plot(add = T, col = "green")
 
   ### Extract forest cover 2000 pixels in different polygons
   areas_fc2000 <- matrix(nrow = 3, 
@@ -188,7 +188,7 @@ uml %>% st_geometry %>% plot(add = T, col = "green")
                          dimnames = list(c("10km_catchment_radius", "30km_catchment_radius", "50km_catchment_radius"),
                                          c("area_in_island", "area_in_uml_cr", "area_in_ibs_cr")))
 
-  thed_gfc_data <- brick(paste0(here("build/input/outcome_variables/gfc_data_"),island,"_",th,"th.tif"))
+  thed_gfc_data <- brick(paste0(here("build/input/outcome_variables/gfc_data_"),island,"_",threshold,"th.tif"))
   # select the forestcover layer (band 1)
   fc2000 <- thed_gfc_data[[1]] 
   # remove useless other stack of gfc layers
@@ -199,20 +199,33 @@ uml %>% st_geometry %>% plot(add = T, col = "green")
   areas_fc2000[,"area_in_island"] <- raster::extract(fc2000, 
                                                      island_sf[island_sf$island_name == island,"geometry"],
                                                      fun = sum, 
-                                                     na.rm = TRUE)
+                                                     na.rm = TRUE, 
+                                                     progress = "text")
+  
+  print("area_in_island done")
+  print(Sys.time())
+  
   CR <- 10
   while(CR < 60){  
     ## compute area of forest cover within catchment radius of all UML mills
-    areas_fc2000[paste0(CR,"km_catchment_radius", "area_in_uml_cr")] <- raster::extract(fc2000,
+    areas_fc2000[paste0(CR,"km_catchment_radius"), "area_in_uml_cr"] <- raster::extract(fc2000,
                                                                                         uml_cr[[CR]], 
                                                                                         fun = sum, 
-                                                                                        na.rm = TRUE)
+                                                                                        na.rm = TRUE, 
+                                                                                        progress = "text")
+    
+    print(paste0(CR, "CR UML done"))
+    print(Sys.time())
     
     ## compute area of forest cover within catchment radius of IBS_UML mills only
-    areas_fc2000[paste0(CR,"km_catchment_radius", "area_in_ibs_cr")] <- raster::extract(fc2000,
+    areas_fc2000[paste0(CR,"km_catchment_radius"), "area_in_ibs_cr"] <- raster::extract(fc2000,
                                                                                         ibs_cr[[CR]], 
                                                                                         fun = sum, 
-                                                                                        na.rm = TRUE)
+                                                                                        na.rm = TRUE, 
+                                                                                        progress = "text")
+    print(paste0(CR, "CR IBS done"))
+    print(Sys.time())
+    
     CR <- CR + 20
     }
   
@@ -222,13 +235,14 @@ uml %>% st_geometry %>% plot(add = T, col = "green")
   # (because once projected to indonesian_crs, the gfc raster has resolution(27.8 ; 27.6))
   areas_fc2000 <- areas_fc2000*27.7
   
-  saveRDS(areas_fc2000, paste0(here("analysis/output/areas_fc2000_"),island, "_",th,"th.Rdata"))
+  saveRDS(areas_fc2000, paste0(here("analysis/output/areas_fc2000_"),island, "_",threshold,"th.Rdata"))
   
   return(areas_fc2000)
 }
 
-
-
+tic()
+make_stats_fc2000(island = "Sumatra", threshold = 30)
+toc()
 
 
 
