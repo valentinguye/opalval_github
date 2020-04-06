@@ -64,7 +64,7 @@ indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +
 
 
 
-
+##### Prepare polygons of three Indonesian islands of interest #####
 provinces <- st_read("IDN_adm/IDN_adm1.shp")
 provinces <- dplyr::select(provinces, NAME_1)
 
@@ -102,8 +102,12 @@ island_sf <- island_sf[!duplicated(island_sf$island_name),]
 island_sf_prj <- st_transform(island_sf, crs = indonesian_crs)
 
 
-#### Forest cover in 2000 #### 
-make_stats_fc2000 <- function(island){
+##### Forest cover in 2000 ##### 
+island <- "Sumatra"
+th <- 30
+
+make_stats_fc2000 <- function(island, threshold){
+  
   ### Prepare UML mills
   uml <- read_xlsx(here("build/input/mill_geolocalization/mills_20200129.xlsx"))
   uml$latitude <- as.numeric(uml$latitude)
@@ -113,88 +117,116 @@ make_stats_fc2000 <- function(island){
   uml <- st_as_sf(uml,	coords	=	c("longitude",	"latitude"), crs = 4326)
   uml_prj <- st_transform(uml, crs = indonesian_crs)
   
-  #define big catchment areas to have a large AOI.
-  uml_ca <- list()
+  uml_cr <- list()
   CR <- 10
   while(CR < 60){
-    uml_ca[[CR]] <- st_buffer(uml_prj, dist = CR*1000)
+    uml_cr[[CR]] <- st_buffer(uml_prj, dist = CR*1000)
     
     # # work with squares rather than with circles
-    # for(i in 1:length(uml_ca[[CR]])){
-    #   uml_ca[[CR]][i] <- st_as_sfc(st_bbox(uml_ca[[CR]][i]))
+    # for(i in 1:length(uml_cr[[CR]])){
+    #   uml_cr[[CR]][i] <- st_as_sfc(st_bbox(uml_cr[[CR]][i]))
     # }
     
     
-    uml_ca[[CR]] <- st_union(st_geometry(uml_ca[[CR]]))
+    uml_cr[[CR]] <- st_union(st_geometry(uml_cr[[CR]]))
     
     # keep only the part of this total catchment area that is on our island of interest
-    uml_ca[[CR]] <- st_intersection(x = uml_ca[[CR]], 
+    uml_cr[[CR]] <- st_intersection(x = uml_cr[[CR]], 
                                     y = island_sf_prj[island_sf_prj$island_name == island,])
     
-    uml_ca[[CR]] <- st_transform(uml_ca[[CR]], crs = 4326)
+    uml_cr[[CR]] <- st_transform(uml_cr[[CR]], crs = 4326)
 
     # coerce to a SpatialPolygon
-    uml_ca[[CR]] <- uml_ca[[CR]] %>% st_geometry()
-    #uml_ca[[CR]] <- as(uml_ca[[CR]], "Spatial")
+    uml_cr[[CR]] <- uml_cr[[CR]] %>% st_geometry()
+    #uml_cr[[CR]] <- as(uml_cr[[CR]], "Spatial")
     
     CR <- CR + 20
   }
   
 
   island_sf[island_sf$island_name == island,"geometry"] %>% plot() 
-  uml_ca[[50]] %>% plot(add = T, col = "blue")
-  uml_ca[[10]] %>% plot(add = T, col = "red")
+  uml_cr[[50]] %>% plot(add = T, col = "blue")
+  uml_cr[[10]] %>% plot(add = T, col = "red")
   
 
-### Prepare IBS_UML mills
-ibs <- read.dta13(here("build/input/IBS_UML_cs.dta"))
-ibs <- st_as_sf(ibs,	coords	=	c("lon",	"lat"), crs=4326)
-ibs <- st_geometry(ibs)
+  ### Prepare IBS_UML mills
+  ibs <- read.dta13(here("build/input/IBS_UML_cs.dta"))
+  ibs <- st_as_sf(ibs,	coords	=	c("lon",	"lat"), crs=4326)
+  ibs <- st_geometry(ibs)
+  ibs_prj <- st_transform(ibs, crs = indonesian_crs)
+  
+  ibs_cr <- list()
+  CR <- 10
+  while(CR < 60){
+    ibs_cr[[CR]] <- st_buffer(ibs_prj, dist = CR*1000)
+    
+    ibs_cr[[CR]] <- st_union(st_geometry(ibs_cr[[CR]]))
+    
+    # keep only the part of this total catchment area that is on our island of interest
+    ibs_cr[[CR]] <- st_intersection(x = ibs_cr[[CR]], 
+                                    y = island_sf_prj[island_sf_prj$island_name == island,])
+    
+    ibs_cr[[CR]] <- st_transform(ibs_cr[[CR]], crs = 4326)
+    
+    # coerce to a SpatialPolygon
+    ibs_cr[[CR]] <- ibs_cr[[CR]] %>% st_geometry()
+    #ibs_cr[[CR]] <- as(ibs_cr[[CR]], "Spatial")
+    
+    CR <- CR + 20
+  }
+  
+  ## Ploting these catchment areas of different sizes
+  # island_sf[island_sf$island_name == island,"geometry"] %>% plot() 
+  # ibs_ca[[50]] %>% plot(add = T, col = "blue")
+  # ibs_ca[[10]] %>% plot(add = T, col = "red")
+  
+uml %>% st_geometry %>% plot(add = T, col = "green")
 
-#define big catchment areas to have a large AOI.
-ibs_ca50 <- st_buffer(ibs, dist = 50000)
-ibs_ca30 <- st_buffer(ibs, dist = 30000)
-ibs_ca10 <- st_buffer(ibs, dist = 10000)
+  ### Extract forest cover 2000 pixels in different polygons
+  areas_fc2000 <- matrix(nrow = 3, 
+                         ncol = 3, 
+                         dimnames = list(c("10km_catchment_radius", "30km_catchment_radius", "50km_catchment_radius"),
+                                         c("area_in_island", "area_in_uml_cr", "area_in_ibs_cr")))
 
-# work with squares rather than with circles
-for(i in 1:length(ibs_ca)){
-  ibs_ca[i] <- st_as_sfc(st_bbox(ibs_ca[i]))
-}
-total_ca <- st_union(st_geometry(mills_ca))
-# coerce to a SpatialPolygon
-total_ca_sp <- as(total_ca, "Spatial")
-
-island <- "Sumatra" 
-th <- 30
-
-while(th < 100){
   thed_gfc_data <- brick(paste0(here("build/input/outcome_variables/gfc_data_"),island,"_",th,"th.tif"))
   # select the forestcover layer (band 1)
   fc2000 <- thed_gfc_data[[1]] 
   # remove useless other stack of gfc layers
   rm(thed_gfc_data)  
-
-  
-  # Unique cell area
-  # once projected to indonesian_crs, the gfc raster has resolution(27.8 ; 27.6)
-  cell_area <- 27.7
-
-  # the output is the total area covered with forest in 2000 in the polygon of Sumatra. 
-  sum_fc2000 <- raster::extract(fc2000, sumatra, fun = sum, na.rm = TRUE)
   
   
-  # then we repeat this but with UML dissolved polygon and with ibs_uml dissolved polygon.  
+  ## compute area of forest cover on the island
+  areas_fc2000[,"area_in_island"] <- raster::extract(fc2000, 
+                                                     island_sf[island_sf$island_name == island,"geometry"],
+                                                     fun = sum, 
+                                                     na.rm = TRUE)
+  CR <- 10
+  while(CR < 60){  
+    ## compute area of forest cover within catchment radius of all UML mills
+    areas_fc2000[paste0(CR,"km_catchment_radius", "area_in_uml_cr")] <- raster::extract(fc2000,
+                                                                                        uml_cr[[CR]], 
+                                                                                        fun = sum, 
+                                                                                        na.rm = TRUE)
+    
+    ## compute area of forest cover within catchment radius of IBS_UML mills only
+    areas_fc2000[paste0(CR,"km_catchment_radius", "area_in_ibs_cr")] <- raster::extract(fc2000,
+                                                                                        ibs_cr[[CR]], 
+                                                                                        fun = sum, 
+                                                                                        na.rm = TRUE)
+    CR <- CR + 20
+    }
   
-  # compute the size of each cell with area(fc2000) 
-  # puis regarder la proportion de 1 
+  rm(fc_2000, uml_cr, ibs_cr)
+  # at this point, each value in areas_fc2000 is the count of pixels covered with forest. 
+  # This value is converted to an area by approximating each pixel's area with a unique value (in m2): 27.7
+  # (because once projected to indonesian_crs, the gfc raster has resolution(27.8 ; 27.6))
+  areas_fc2000 <- areas_fc2000*27.7
   
+  saveRDS(areas_fc2000, paste0(here("analysis/output/areas_fc2000_"),island, "_",th,"th.Rdata"))
   
-  th <- th + 30
+  return(areas_fc2000)
 }
 
-
-
-}
 
 
 
