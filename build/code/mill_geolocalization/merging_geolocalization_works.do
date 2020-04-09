@@ -674,6 +674,15 @@ replace lat = 0.007161207 if firm_id == 70397
 replace lon = 101.2395325 if firm_id == 70397
 
 * 44938 67076 those are Suryaraya Lestari 1
+/* The decision taken here is to remove the four last years of 44938 because 3 of these 4 years are duplicates to previous year(s) for quantity variables.
+ATTENTION: This assumes that those two firms are the same one while this is not so obvious: 
+Suryaraya Lestari 1 is only one mill in the UML, while it is two different ones in MD 2008, 2009 and 2010 with exactly the same name but 
+different number of workers, and slightly different addresses; and two IBS firms (44938 and 67076) match them respectively, and  
+look like different facilities, that both produce CPO and PKO, but in different quantities and values. 
+*/
+drop if firm_id == 44938 & (year == 2006 | year == 2007 | year == 2008 | year == 2009)
+replace firm_id = 44938 if firm_id == 67076
+
 
 * 44993 55831 are actually two separate mills from imagery! 
 

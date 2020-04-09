@@ -11,9 +11,9 @@ rm(list = ls())
 # sf need to be installed from source for lwgeom te be installed from source. 
 if (!require(sf)) install.packages("sf", source = TRUE)
 #"plyr", 
-neededPackages = c("dplyr", "data.table", "rlist", "here",
+neededPackages = c("dplyr", "tidyr", "data.table", "rlist", "here",
                    "foreign", "readxl", "readstata13",
-                   "raster", "rgdal", "velox", "sp", "lwgeom", "rnaturalearth", 
+                   "raster", "rgdal", "velox", "sp", "lwgeom", "rnaturalearth", "gfcanalysis",
                    "ggplot2", "leaflet", "htmltools",
                    "parallel", "foreach", "iterators", "doParallel")
 
@@ -38,9 +38,13 @@ library(devtools)
 install_github("jabiru/tictoc")
 library(tictoc)
 
+#INSTALL GFC ANALYSIS
 # Install the snow package used to speed spatial analyses
 if (!require(snow)) install.packages("snow")
 library(snow)
+# Install Alex's gfcanalysis package
+if (!require(gfcanalysis)) install.packages('gfcanalysis')
+library(gfcanalysis)
 
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
@@ -98,16 +102,170 @@ for(Island in IslandS){
 }
 
 island_sf <- island_sf[!duplicated(island_sf$island_name),]
-
 island_sf_prj <- st_transform(island_sf, crs = indonesian_crs)
+
+## export to GEE 
+st_write(island_sf, "island_sf", driver = "ESRI Shapefile", delete_dsn = TRUE)
+
+
+
+##### Prepare polygons of mill catchment radius #####
+# We would like a multipolygon Simple feature collection with X features and 1 field
+# The one field describes the feature (i.e. polygon).
+# There is one feature for each CR for each mill group (IBS or UML) within each island (so 3*2*3 = 18 features). 
+
+# Create empty list for shapes and shape descriptions
+shape_des <- list()
+mill_cr <- list()
+
+# Fill the lists with shapes and shape descriptions (names)
+IslandS <- c("Sumatra", "Kalimantan", "Papua")
+catchment_radius <- c(10, 30, 50)
+for(island in IslandS){
+  ### Island lists
+  shape_des[[match(island, IslandS)]] <- list()
+  mill_cr[[match(island, IslandS)]] <- list()
+  
+  ## Prepare UML mills
+  uml <- read_xlsx(here("build/input/mill_geolocalization/mills_20200129.xlsx"))
+  uml$latitude <- as.numeric(uml$latitude)
+  uml$longitude <- as.numeric(uml$longitude)
+  uml$lat <- uml$latitude
+  uml$lon <- uml$longitude
+  uml <- st_as_sf(uml,	coords	=	c("longitude",	"latitude"), crs = 4326)
+  uml <- st_geometry(uml)
+  uml_prj <- st_transform(uml, crs = indonesian_crs)
+  
+  ## UML lists
+  shape_des[[match(island, IslandS)]][[1]] <- list()
+  mill_cr[[match(island, IslandS)]][[1]] <- list()
+  
+  for(CR in catchment_radius){
+    ## create union of individual catchment areas.
+    # buffer
+    shape <- st_buffer(uml_prj, dist = CR*1000)
+    # work with squares rather than with circles
+    # for(i in 1:length(shape)){
+    #   shape[i] <- st_as_sfc(st_bbox(shape[i]))
+    # }
+    shape <- sapply(shape, FUN = function(x){st_as_sfc(st_bbox(x))}) %>% st_sfc(crs = indonesian_crs)
+
+    shape <- st_union(shape)
+    # keep only the part of this total catchment area that is on our island of interest
+    shape <- st_intersection(x = shape, y = island_sf_prj[island_sf_prj$island_name == island,])
+    shape <- st_transform(shape, crs = 4326)
+    
+    # add name and geometry to lists
+    shape_des[[match(island, IslandS)]][[1]][[match(CR, catchment_radius)]] <- paste0(island,"_uml_",CR,"km")
+    mill_cr[[match(island, IslandS)]][[1]][[match(CR, catchment_radius)]] <-  shape %>% st_geometry()
+  }  
+  
+  ## Prepare IBS mills
+  ibs <- read.dta13(here("build/input/IBS_UML_cs.dta"))
+  ibs <- st_as_sf(ibs,	coords	=	c("lon",	"lat"), crs=4326)
+  ibs <- st_geometry(ibs)
+  ibs_prj <- st_transform(ibs, crs = indonesian_crs)
+  
+  ## IBS lists
+  shape_des[[match(island, IslandS)]][[2]] <- list()
+  mill_cr[[match(island, IslandS)]][[2]] <- list()
+  
+  for(CR in catchment_radius){
+    ## create union of individual catchment areas.
+    # buffer
+    shape <- st_buffer(ibs_prj, dist = CR*1000)
+    # work with squares rather than with circles
+    # for(i in 1:length(shape)){
+    #   shape[i] <- st_as_sfc(st_bbox(shape[i]))
+    # }
+    shape <- sapply(shape, FUN = function(x){st_as_sfc(st_bbox(x))}) %>% st_sfc(crs = indonesian_crs)
+    
+    shape <- st_union(shape)
+    
+    # keep only the part of this total catchment area that is on our island of interest
+    shape <- st_intersection(x = shape, y = island_sf_prj[island_sf_prj$island_name == island,])
+    shape <- st_transform(shape, crs = 4326)
+    
+    # add name and geometry to lists
+    shape_des[[match(island, IslandS)]][[2]][[match(CR, catchment_radius)]] <- paste0(island,"_ibs_",CR,"km")
+    mill_cr[[match(island, IslandS)]][[2]][[match(CR, catchment_radius)]] <-  shape %>% st_geometry()
+    }    
+}
+
+# flatten the lists
+shape_des <- unlist(shape_des)
+mill_cru <- unlist(mill_cr, recursive = FALSE) 
+mill_cru <- unlist(mill_cru, recursive = FALSE) 
+mill_cru <- unlist(mill_cru, recursive = FALSE)
+
+# make the sf object
+mill_cr_sfc <- st_as_sfc(mill_cru)
+mill_cr_sf <- st_sf(mill_cr_sfc, crs = 4326)
+mill_cr_sf$shape_des <- shape_des
+
+# export to GEE 
+st_write(mill_cr_sf, "mill_cr_sf_bbox", 
+         driver = "ESRI Shapefile", 
+         delete_dsn = TRUE, 
+         overwrite = TRUE)
 
 
 ##### Forest cover in 2000 ##### 
+fc2000 <- list()
+th <- 30
+while(th < 100){
+  fc2000_islands <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_island_ha/FC2000_",th,"th_island_ha.shp"))
+  names(fc2000_islands)[names(fc2000_islands) == "islnd_n"] <- "shape_des"
+  
+  fc2000_mill_cr <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_mill_cr_bbox_ha/FC2000_",th,"th_mill_cr_bbox_ha.shp"))
+  
+  fc2000[[th/30]] <- rbind(fc2000_islands, fc2000_mill_cr)
+  th <- th + 30 
+}
+fc2000_30 <- fc2000[[1]]
+fc2000_60 <- fc2000[[2]]
+fc2000_90 <- fc2000[[3]]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+fc2000_islands <- list()
+th <- 30
+while(th < 100){
+  fc2000_islands[[th/30]] <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_island_ha/FC2000_",th,"th_island_ha.shp"))
+  names(fc2000_islands[[th/30]])[names(fc2000_islands[[th/30]]) == "islnd_n"] <- "island_and_threshold"
+  fc2000_islands[[th/30]]$island_and_threshold <- paste0(fc2000_islands[[th/30]]$island_and_threshold,"_",th,"th")
+  
+  th <- th + 30 
+}
+
+fc2000 <- rbind(fc2000_islands[[1]],fc2000_islands[[2]],fc2000_islands[[3]])
+
+
+
+fc2000_islands30 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_30th_island_ha/FC2000_30th_island_ha.shp")
+fc2000_islands60 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_60th_island_ha/FC2000_60th_island_ha.shp")
+fc2000_islands90 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_90th_island_ha/FC2000_90th_island_ha.shp")
+
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 # island <- "Sumatra"
 # threshold <- 30
-
-make_stats_fc2000 <- function(island, threshold){
-  
+make_cr_polygons_uml <- function(island){
   ### Prepare UML mills
   uml <- read_xlsx(here("build/input/mill_geolocalization/mills_20200129.xlsx"))
   uml$latitude <- as.numeric(uml$latitude)
@@ -143,12 +301,14 @@ make_stats_fc2000 <- function(island, threshold){
     CR <- CR + 20
   }
   
+return(uml_cr)  
+}  
 
-  island_sf[island_sf$island_name == island,"geometry"] %>% plot() 
-  uml_cr[[50]] %>% plot(add = T, col = "blue")
-  uml_cr[[10]] %>% plot(add = T, col = "red")
+  # island_sf[island_sf$island_name == island,"geometry"] %>% plot() 
+  # uml_cr[[50]] %>% plot(add = T, col = "blue")
+  # uml_cr[[10]] %>% plot(add = T, col = "red")
   
-
+make_cr_polygons_ibs <- function(island){
   ### Prepare IBS_UML mills
   ibs <- read.dta13(here("build/input/IBS_UML_cs.dta"))
   ibs <- st_as_sf(ibs,	coords	=	c("lon",	"lat"), crs=4326)
@@ -175,12 +335,33 @@ make_stats_fc2000 <- function(island, threshold){
     CR <- CR + 20
   }
   
-  ## Ploting these catchment areas of different sizes
-  # island_sf[island_sf$island_name == island,"geometry"] %>% plot() 
-  # ibs_ca[[50]] %>% plot(add = T, col = "blue")
-  # ibs_ca[[10]] %>% plot(add = T, col = "red")
-  
-  #uml %>% st_geometry %>% plot(add = T, col = "green")
+return(ibs_cr)
+}
+
+
+
+make_cr_polygons_uml("Sumatra")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+make_stats_fc2000 <- function(island, threshold){
 
   ### Extract forest cover 2000 pixels in different polygons
   areas_fc2000 <- matrix(nrow = 3, 
@@ -192,15 +373,27 @@ make_stats_fc2000 <- function(island, threshold){
   # select the forestcover layer (band 1)
   fc2000 <- thed_gfc_data[[1]] 
   # remove useless other stack of gfc layers
-  rm(thed_gfc_data)  
+  #rm(thed_gfc_data)  
   
   
   ## compute area of forest cover on the island
-  areas_fc2000[,"area_in_island"] <- raster::extract(fc2000, 
-                                                     island_sf[island_sf$island_name == island,"geometry"],
-                                                     fun = sum, 
-                                                     na.rm = TRUE, 
-                                                     progress = "text")
+  # areas_fc2000[,"area_in_island"] <- raster::extract(fc2000, 
+  #                                                    island_sf[island_sf$island_name == island,"geometry"],
+  #                                                    fun = sum, 
+  #                                                    na.rm = TRUE, 
+  #                                                    progress = "text")
+  
+  aoi_island <- island_sf[island_sf$island_name == island,"geometry"] %>% as("Spatial")
+  #aoi_island$label <- island
+  
+  rasterOptions(progress = "text")
+  
+  # 60k seconds and a 9Gb tmp file (with chunksize 2e+9). 
+  stat_list <- gfc_stats(aoi = aoi_island, 
+                         thed_gfc_data, 
+                         dataset = "GFC-2018-v1.6")
+  saveRDS(stat_list, 
+          paste0(here("analysis/output/gfc_stats_output_"),island,"_",threshold,"th.Rdata"))
   
   print("area_in_island done")
   print(Sys.time())

@@ -623,15 +623,15 @@ write.xlsx(heilmayr_desa_defo, file = "heilmayr_desa_defo_net_alt.xlsx", col.nam
 # autrement dit les weights peuvent ?tre 1/length(.)
 
 #pour chaque CA i
-# il faut r?ussir ? s?lectionner tous les polygons qui ont "i" en origins. 
-# puis grouper ceux qui ont le m?me nombre d'overlaps. ou meme pas d'ailleurs en fait
-# on peut juste "d?composer" sha_n en sha_n_1 sha_n_2 etc. i.e. les proportions du buffer total
-# des diff?rentes parties qui sont partag?es par n autres. 
+# il faut reussir à selectionner tous les polygons qui ont "i" en origins. 
+# puis grouper ceux qui ont le meme nombre d'overlaps. ou meme pas d'ailleurs en fait
+# on peut juste "decomposer" sha_n en sha_n_1 sha_n_2 etc. i.e. les proportions du buffer total
+# des differentes parties qui sont partagees par n autres. 
 
-# une mani?re de s?lectioner ce serait, pour chaque CA, de faire la liste des CAs qui l'intersectent. 
+# une maniere de selectioner ce serait, pour chaque CA, de faire la liste des CAs qui l'intersectent. 
 # et faire st_intersection parmi cette liste. 
 # l'output i devrait toujours avoir 1 dans l'origins, 
-# NOP il y a aussi toutes les intersections entre les "autres" "en-dehors" le CA d'int?r?t. 
+# NOP il y a aussi toutes les intersections entre les "autres" "en-dehors" le CA d'interet. 
 
 # puis on calcule la somme des st_area(i[r,])/st_area(simple_buffer[[km/10]][k,])*1/i[r, n.overlaps]
 
@@ -660,7 +660,7 @@ years <- c(1:17)
 light_buffers <- list()
 km <- 10
 while(km < 60){
-  # lighter version of simple_buffers
+  # lighter version of simple_buffers # ST_SF ??? 
   light_buffers[[km/10]] <- st_sf(st_geometry(simple_buffers[[km/10]]))
   
   for(t in 1:length(years)){
