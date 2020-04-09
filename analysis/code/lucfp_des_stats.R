@@ -11,8 +11,9 @@ rm(list = ls())
 # sf need to be installed from source for lwgeom te be installed from source. 
 if (!require(sf)) install.packages("sf", source = TRUE)
 #"plyr", 
-neededPackages = c("dplyr", "tidyr", "data.table", "rlist", "here",
-                   "foreign", "readxl", "readstata13",
+neededPackages = c("dplyr", "tidyr", "data.table", "rlist", "sjmisc", "here", 
+                   "foreign", "readxl", "readstata13", 
+                   "knitr", "kableExtra",
                    "raster", "rgdal", "velox", "sp", "lwgeom", "rnaturalearth", "gfcanalysis",
                    "ggplot2", "leaflet", "htmltools",
                    "parallel", "foreach", "iterators", "doParallel")
@@ -211,26 +212,105 @@ st_write(mill_cr_sf, "mill_cr_sf_bbox",
 
 
 ##### Forest cover in 2000 ##### 
-fc2000 <- list()
+### Make an ordered data frame that is easily tabulized afterwards. 
+
+fc2000_list <- list()
 th <- 30
 while(th < 100){
+  # Stack island sums and mill_cr sums
   fc2000_islands <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_island_ha/FC2000_",th,"th_island_ha.shp"))
+  fc2000_islands <- fc2000_islands %>% st_drop_geometry()
   names(fc2000_islands)[names(fc2000_islands) == "islnd_n"] <- "shape_des"
-  
+
   fc2000_mill_cr <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_mill_cr_bbox_ha/FC2000_",th,"th_mill_cr_bbox_ha.shp"))
+  fc2000_mill_cr <- fc2000_mill_cr %>% st_drop_geometry()
   
-  fc2000[[th/30]] <- rbind(fc2000_islands, fc2000_mill_cr)
-  th <- th + 30 
-}
-fc2000_30 <- fc2000[[1]]
-fc2000_60 <- fc2000[[2]]
-fc2000_90 <- fc2000[[3]]
+  fc2000_th <- rbind(fc2000_islands, fc2000_mill_cr) %>% data.frame(row.names = "shape_des")
+  # fc2000_th$shape_des <- row.names(fc2000_th)
+  
+  # convert the sum value from hectare to million hectare 
+  fc2000_th$sum <- fc2000_th$sum/1e6
+  fc2000_th$sum <- fc2000_th$sum %>% round(digits = 2)
 
+  # change the one column name
+  names(fc2000_th) <- paste0(th,"%")
+  
+  # order the data frame in the way we want the output table. 
+  fc2000_th$x <- "x" # this is necessary for the following to keep being a df a not a vector. 
+  fc2000_th <- fc2000_th[c("Sumatra_ibs_10km",
+                           "Sumatra_ibs_30km",
+                           "Sumatra_ibs_50km",
+                           "Sumatra_uml_10km",
+                           "Sumatra_uml_30km",
+                           "Sumatra_uml_50km",
+                           "Sumatra",
+                           "Kalimantan_ibs_10km",
+                           "Kalimantan_ibs_30km",
+                           "Kalimantan_ibs_50km",
+                           "Kalimantan_uml_10km",
+                           "Kalimantan_uml_30km",
+                           "Kalimantan_uml_50km",
+                           "Kalimantan",
+                           "Papua_ibs_10km",
+                           "Papua_ibs_30km",
+                           "Papua_ibs_50km",
+                           "Papua_uml_10km",
+                           "Papua_uml_30km",
+                           "Papua_uml_50km",
+                           "Papua"),]
+  
+  # simplifying row names makes them not unique, which is not accepted 
+  fc2000_th <- as.matrix(fc2000_th)
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Sumatra_", 
+                                      replacement = "")
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Sumatra", 
+                                      replacement = "Total island")
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Kalimantan_", 
+                                      replacement = "")
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Kalimantan", 
+                                      replacement = "Total island")
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Papua_", 
+                                      replacement = "")
+  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                      pattern = "Papua", 
+                                      replacement = "Total island")
+  
+  for(KM in c(10, 30, 50)){
+    row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                        pattern = paste0("ibs_",KM,"km"), 
+                                        replacement = paste0("Within ",KM,"km of an IBS mill"))
+    
+  
+    row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
+                                        pattern = paste0("uml_",KM,"km"), 
+                                        replacement = paste0("Within ",KM,"km of an UML mill"))
+  }                          
+  
+  fc2000_th <- fc2000_th[,1]  
+  #fc2000_th <- fc2000_th %>% dplyr::select(-x)
+ 
+  fc2000_list[[th/30]] <- fc2000_th
+  
+  th <- th + 30  
+} 
 
+fc2000 <- cbind(fc2000_list[[1]], fc2000_list[[2]], fc2000_list[[3]])
 
+### Print the LateX table code 
 
-
-
+options(knitr.table.format = "latex") 
+kable(fc2000, booktabs = T) %>% 
+  kable_styling(latex_options = "scale_down") %>% 
+  add_header_above(c(" ", "30%" = 1, "60%" = 1, "90%" = 1)) %>% 
+  add_header_above(c(" ", "Forest cover in 2000 in Mha" = 3), bold = T) %>% 
+  pack_rows(index = c("Sumatra" = 7, 
+                      "Kalimantan" = 7,
+                      "Papua" = 7))
 
 
 
@@ -260,6 +340,26 @@ fc2000 <- rbind(fc2000_islands[[1]],fc2000_islands[[2]],fc2000_islands[[3]])
 fc2000_islands30 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_30th_island_ha/FC2000_30th_island_ha.shp")
 fc2000_islands60 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_60th_island_ha/FC2000_60th_island_ha.shp")
 fc2000_islands90 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_90th_island_ha/FC2000_90th_island_ha.shp")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
