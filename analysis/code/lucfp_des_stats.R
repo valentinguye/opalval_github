@@ -11,7 +11,7 @@ rm(list = ls())
 # sf need to be installed from source for lwgeom te be installed from source. 
 if (!require(sf)) install.packages("sf", source = TRUE)
 #"plyr", 
-neededPackages = c("dplyr", "tidyr", "data.table", "rlist", "sjmisc", "here", 
+neededPackages = c("dplyr", "tidyr", "data.table", "rlist", "stringr", "sjmisc", "here", 
                    "foreign", "readxl", "readstata13", 
                    "knitr", "kableExtra",
                    "raster", "rgdal", "velox", "sp", "lwgeom", "rnaturalearth", "gfcanalysis",
@@ -55,9 +55,6 @@ setwd(here("analysis/input"))
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
-### RASTER OPTIONS ### 
-rasterOptions(chunksize = 2e+9,
-              timer = TRUE)
 
 ### INDONESIAN CRS ### 
 #   Following http://www.geo.hunter.cuny.edu/~jochen/gtech201/lectures/lec6concepts/map%20coordinate%20systems/how%20to%20choose%20a%20projection.htm
@@ -67,7 +64,7 @@ rasterOptions(chunksize = 2e+9,
 #   which we center at Indonesian longitude with lat_ts = 0 and lon_0 = 115.0
 indonesian_crs <- "+proj=cea +lon_0=115.0 +lat_ts=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs"
 
-
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 ##### Prepare polygons of three Indonesian islands of interest #####
 provinces <- st_read("IDN_adm/IDN_adm1.shp")
@@ -211,7 +208,9 @@ st_write(mill_cr_sf, "mill_cr_sf_bbox",
          overwrite = TRUE)
 
 
+
 ##### Forest cover in 2000 ##### 
+
 ### Make an ordered data frame that is easily tabulized afterwards. 
 
 fc2000_list <- list()
@@ -225,18 +224,18 @@ while(th < 100){
   fc2000_mill_cr <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_mill_cr_bbox_ha/FC2000_",th,"th_mill_cr_bbox_ha.shp"))
   fc2000_mill_cr <- fc2000_mill_cr %>% st_drop_geometry()
   
-  fc2000_th <- rbind(fc2000_islands, fc2000_mill_cr) %>% data.frame(row.names = "shape_des")
-  # fc2000_th$shape_des <- row.names(fc2000_th)
+  fc2000_th <- rbind(fc2000_islands, fc2000_mill_cr) 
   
   # convert the sum value from hectare to million hectare 
   fc2000_th$sum <- fc2000_th$sum/1e6
   fc2000_th$sum <- fc2000_th$sum %>% round(digits = 2)
 
   # change the one column name
-  names(fc2000_th) <- paste0(th,"%")
+  names(fc2000_th)[names(fc2000_th) == "sum"] <- paste0(th,"%")
   
   # order the data frame in the way we want the output table. 
-  fc2000_th$x <- "x" # this is necessary for the following to keep being a df a not a vector. 
+  # For this, one needs row names
+  row.names(fc2000_th) <- fc2000_th$shape_des
   fc2000_th <- fc2000_th[c("Sumatra_ibs_10km",
                            "Sumatra_ibs_30km",
                            "Sumatra_ibs_50km",
@@ -257,60 +256,214 @@ while(th < 100){
                            "Papua_uml_10km",
                            "Papua_uml_30km",
                            "Papua_uml_50km",
-                           "Papua"),]
-  
-  # simplifying row names makes them not unique, which is not accepted 
-  fc2000_th <- as.matrix(fc2000_th)
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Sumatra_", 
-                                      replacement = "")
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Sumatra", 
-                                      replacement = "Total island")
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Kalimantan_", 
-                                      replacement = "")
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Kalimantan", 
-                                      replacement = "Total island")
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Papua_", 
-                                      replacement = "")
-  row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                      pattern = "Papua", 
-                                      replacement = "Total island")
-  
-  for(KM in c(10, 30, 50)){
-    row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                        pattern = paste0("ibs_",KM,"km"), 
-                                        replacement = paste0("Within ",KM,"km of an IBS mill"))
-    
-  
-    row.names(fc2000_th) <- str_replace(string = row.names(fc2000_th), 
-                                        pattern = paste0("uml_",KM,"km"), 
-                                        replacement = paste0("Within ",KM,"km of an UML mill"))
-  }                          
-  
-  fc2000_th <- fc2000_th[,1]  
-  #fc2000_th <- fc2000_th %>% dplyr::select(-x)
- 
+                           "Papua"), ]
+                         
   fc2000_list[[th/30]] <- fc2000_th
   
   th <- th + 30  
 } 
 
 fc2000 <- cbind(fc2000_list[[1]], fc2000_list[[2]], fc2000_list[[3]])
+fc2000 <- fc2000[,c("30%", "60%", "90%")]
 
-### Print the LateX table code 
+# simplifying row names makes them not unique, which is not accepted in a data frame but is in a matrix. 
+  fc2000 <- as.matrix(fc2000)
+  
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Sumatra_", 
+                                      replacement = "")
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Sumatra", 
+                                      replacement = "Total island")
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Kalimantan_", 
+                                      replacement = "")
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Kalimantan", 
+                                      replacement = "Total island")
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Papua_", 
+                                      replacement = "")
+  row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                      pattern = "Papua", 
+                                      replacement = "Total island")
+  
+  for(KM in c(10, 30, 50)){
+    row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                        pattern = paste0("ibs_",KM,"km"), 
+                                        replacement = paste0("Within ",KM,"km of an IBS mill"))
+    
+  
+    row.names(fc2000) <- str_replace(string = row.names(fc2000), 
+                                        pattern = paste0("uml_",KM,"km"), 
+                                        replacement = paste0("Within ",KM,"km of an UML mill"))
+  }
 
+
+
+##### ACCUMULATED LUCFP #####
+tic()
+rasterOptions(maxmemory = 1e10, chunksize = 1e9)
+
+island_sf <- st_read("island_sf")
+names(island_sf)[names(island_sf) == "islnd_n"] <- "shape_des"
+island_sf_prj <- st_transform(island_sf, crs = indonesian_crs)
+
+mill_cr_sf <- st_read("mill_cr_sf_bbox")
+mill_cr_sf_prj <- st_transform(mill_cr_sf, crs = indonesian_crs)
+
+all_shapes <- rbind(island_sf_prj, mill_cr_sf_prj)
+all_shapes$shape_des <- as.character(all_shapes$shape_des)
+
+### Extract LUCFP for all shapes of interest (in R and not GEE here because not too slow because already aggregated)
+IslandS <- c("Sumatra", "Kalimantan", "Papua")
+#island <- "Sumatra"
+ 
+lucfp_thresholds <- list()
+
+parcel_size <- 3000
+th <- 30
+while(th < 100){
+  
+  lucfp_islands<- list()
+  
+  for(island in IslandS){
+    brick_lucfp <- brick(here(paste0("build/input/outcome_variables/bricked_parcels/parcels_",island,"_",parcel_size/1000,"km_",th,"th.tif")))
+    
+    # remove layers of years aftr 2015
+    brick_lucfp <- raster::subset(brick_lucfp, c(1:15))
+    # Add up annual aggregated LUCFP
+    accu_lucfp <- calc(brick_lucfp, fun = sum, na.rm = TRUE)
+    
+    # select shapes of that island 
+    shapes_in_island <- all_shapes[str_contains(x = island, 
+                                                pattern = all_shapes$shape_des, 
+                                                switch = TRUE),]
+    
+    # make velox object
+    v.accu_lucfp <- velox(accu_lucfp)
+    
+    lucfp_islands[[match(island, IslandS)]] <- matrix(nrow = nrow(shapes_in_island),
+                                                      ncol = 2)
+    colnames(lucfp_islands[[match(island, IslandS)]]) <- c("shape_des", "sum")
+
+    for(i in 1:nrow(shapes_in_island)){
+      lucfp_islands[[match(island, IslandS)]][i,"shape_des"] <- shapes_in_island$shape_des[i]
+      lucfp_islands[[match(island, IslandS)]][i, "sum"] <- v.accu_lucfp$extract(shapes_in_island[i,"geometry"],
+                                       fun = function(x)sum(x, na.rm = TRUE))
+    }
+  }
+  # stack the extracted values from shapes of three islands
+  lucfp_th <- rbind(lucfp_islands[[1]], lucfp_islands[[2]], lucfp_islands[[3]]) %>% as.data.frame()
+  
+  # "de-factor" variables
+  lucfp_th$shape_des <-lucfp_th$shape_des %>% as.character() 
+  lucfp_th$sum <- lucfp_th$sum %>% as.character %>% as.numeric()
+
+  # convert the sum value from number of pixels of resolution 27.7m (i.e; 767.29 square meters) to million hectare 
+  pixel_area <- (27.7^2)/(1e10) # 1e10 is the convertion factor between a square meter and a MILLION hectare.  
+  lucfp_th$sum <- lucfp_th$sum*pixel_area
+  lucfp_th$sum <- lucfp_th$sum %>% round(digits = 2)
+  
+  # change the one column name
+  names(lucfp_th)[names(lucfp_th) == "sum"] <- paste0(th,"%")
+  
+  # order the data frame in the way we want the output table. 
+  # For this, one needs row names
+  row.names(lucfp_th) <- lucfp_th$shape_des
+  lucfp_th <- lucfp_th[c("Sumatra_ibs_10km",
+                           "Sumatra_ibs_30km",
+                           "Sumatra_ibs_50km",
+                           "Sumatra_uml_10km",
+                           "Sumatra_uml_30km",
+                           "Sumatra_uml_50km",
+                           "Sumatra",
+                           "Kalimantan_ibs_10km",
+                           "Kalimantan_ibs_30km",
+                           "Kalimantan_ibs_50km",
+                           "Kalimantan_uml_10km",
+                           "Kalimantan_uml_30km",
+                           "Kalimantan_uml_50km",
+                           "Kalimantan",
+                           "Papua_ibs_10km",
+                           "Papua_ibs_30km",
+                           "Papua_ibs_50km",
+                           "Papua_uml_10km",
+                           "Papua_uml_30km",
+                           "Papua_uml_50km",
+                           "Papua"), ]
+  
+  lucfp_thresholds[[th/30]] <- lucfp_th
+  th <- th + 30                         
+}
+
+# column bind the three dataframes  
+lucfp <- cbind(lucfp_thresholds[[1]], lucfp_thresholds[[2]], lucfp_thresholds[[3]])
+# remove the shape_des columns
+lucfp <- lucfp[,c("30%", "60%", "90%")]
+
+# simplifying row names makes them not unique, which is not accepted in a data frame but is in a matrix. 
+lucfp <- as.matrix(lucfp)
+
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Sumatra_", 
+                                 replacement = "")
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Sumatra", 
+                                 replacement = "Total island")
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Kalimantan_", 
+                                 replacement = "")
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Kalimantan", 
+                                 replacement = "Total island")
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Papua_", 
+                                 replacement = "")
+row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                 pattern = "Papua", 
+                                 replacement = "Total island")
+
+for(KM in c(10, 30, 50)){
+  row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                   pattern = paste0("ibs_",KM,"km"), 
+                                   replacement = paste0("Within ",KM,"km of an IBS mill"))
+  
+  
+  row.names(lucfp) <- str_replace(string = row.names(lucfp), 
+                                   pattern = paste0("uml_",KM,"km"), 
+                                   replacement = paste0("Within ",KM,"km of an UML mill"))
+}
+
+
+lucfp
+toc() # 1571s. 
+
+
+##### Print the LateX table code #####
 options(knitr.table.format = "latex") 
-kable(fc2000, booktabs = T) %>% 
-  kable_styling(latex_options = "scale_down") %>% 
-  add_header_above(c(" ", "30%" = 1, "60%" = 1, "90%" = 1)) %>% 
-  add_header_above(c(" ", "Forest cover in 2000 in Mha" = 3), bold = T) %>% 
+
+LU_stat_des <- cbind(fc2000, lucfp)
+colnames(LU_stat_des) <- NULL
+
+kable(LU_stat_des, booktabs = T, align = "r") %>% 
+  kable_styling(latex_options = c("scale_down")) %>% 
+  add_header_above(c("Canopy closure:" = 1, 
+                     "30%" = 1, "60%" = 1, "90%" = 1, 
+                     "30%" = 1, "60%" = 1, "90%" = 1), 
+                   align = "r", 
+                   strikeout = F) %>% 
+  add_header_above(c(" ", 
+                     "Forest cover \n in 2000, Mha" = 3, 
+                     "Accumulated LUCFP \n 2001-2015, Mha" = 3), 
+                   bold = T, 
+                   align = "c") %>% 
   pack_rows(index = c("Sumatra" = 7, 
                       "Kalimantan" = 7,
-                      "Papua" = 7))
+                      "Papua" = 7))  %>%
+  column_spec(column = c(2:7),
+              width = "3em")
+
 
 
 
