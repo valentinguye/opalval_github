@@ -3,7 +3,7 @@ drop Domesticprice FOBPrice
 save "$base_path_wd\build\input\prices_exp.dta", replace
 
 *use "C:\Users\guyv\ownCloud\opalval\build\input\IBS_1998_cleaned.dta", clear
-use "$base_path_wd\build\input\IBS_UML_panel.dta", clear
+use "$base_path_wd\build\input\IBS_UML_panel_est_year.dta", clear
 merge m:1 year using "$base_path_wd\build\input\prices_exp.dta", nogenerate 
 sort firm_id year 
 *need to change the global for all new price variables each time (and don't forget to NOT DELFATE taxeffectiverate). 
@@ -53,7 +53,7 @@ foreach var of varlist $to_log {
 
 sort firm_id year 
 
-save "$base_path_wd\build\output\IBS_panel_final.dta", replace 
+save "$base_path_wd\build\output\IBS_UML_panel_final.dta", replace 
 
 
 

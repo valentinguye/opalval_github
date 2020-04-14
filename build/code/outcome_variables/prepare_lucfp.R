@@ -18,9 +18,9 @@
 #             for 3 forest definitions (30, 60, 90 percent forest cover).
 #             
 #             One such dataframe for each combination of parcel size (only 3x3km for now) and catchment radius (10, 30, 50km)
-#             ---> panel_Indonesia_3km_10CR.Rdata 
-#             ---> panel_Indonesia_3km_30CR.Rdata 
-#             ---> panel_Indonesia_3km_50CR.Rdata
+#             ---> panel_Indonesia_3km_10CR.rds 
+#             ---> panel_Indonesia_3km_30CR.rds 
+#             ---> panel_Indonesia_3km_50CR.rds
 # 
 #   
 #   Actions:  This script consists of mainly three functions.  
@@ -611,7 +611,7 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
    
     m.df <- setorder(m.df, parcel_id, year)
     saveRDS(m.df,
-            file = paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_",threshold,"th.Rdata"))
+            file = paste0("./dataframes/panel_",island,"_",parcel_size/1000,"km_",catchment_radius/1000,"CR_",threshold,"th.rds"))
   }
 
   ### Execute it
@@ -631,35 +631,39 @@ to_panel_within_CR <- function(island, parcel_size, catchment_radius){
 #### Execute the functions ####
 # Only if their outputs have not been already computed
 
-### Prepare a 30m pixel map of lucfp for that Island
-# Choose an island between "Sumatra", "Kalimantan" or "Papua"
-Island <- "Papua"
-
-if(!file.exists(paste0("./annual_maps/lucfp_",Island,"_90th_2018.tif"))){
-  
-  prepare_pixel_lucfp(Island)
+### Prepare a 30m pixel map of lucfp for each Island
+IslandS <- c("Sumatra", "Kalimantan", "Papua")
+for(Island in IslandS){
+  if(!file.exists(paste0("./annual_maps/lucfp_",Island,"_90th_2018.tif"))){
+    
+    prepare_pixel_lucfp(Island)
+  }
 }
 
 ### Aggregate this Island map to a chosen parcel size (3km, 6km and 9km for instance)
 PS <- 3000
-
-if(!file.exists(paste0("./bricked_parcels/parcels_",Island,"_",PS/1000,"km_90th.tif"))){
-  
-  aggregate_lucfp(island = Island,
-                  parcel_size = PS)
+IslandS <- c("Sumatra", "Kalimantan", "Papua")
+for(Island in IslandS){
+  if(!file.exists(paste0("./bricked_parcels/parcels_",Island,"_",PS/1000,"km_90th.tif"))){
+    
+    aggregate_lucfp(island = Island,
+                    parcel_size = PS)
+  }
 }
 
 ### For that Island and for each aggregation factor, extract panels of parcels within different catchment area sizes 
 # (radius of 10km, 30km and 50km)
-CR <- 10000 # i.e. 10km radius
-
-if(!file.exists(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.Rdata"))){
-
+PS <- 3000
+IslandS <- c("Sumatra", "Kalimantan", "Papua")
+for(Island in IslandS){
+  CR <- 10000 # i.e. 10km radius
   while(CR < 60000){
-
-    to_panel_within_CR(island = Island,
-                          parcel_size = PS,
-                          catchment_radius = CR)
+    if(!file.exists(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.rds"))){
+      
+      to_panel_within_CR(island = Island,
+                            parcel_size = PS,
+                            catchment_radius = CR)
+    }
     CR <- CR + 20000
   }
 }
@@ -675,9 +679,9 @@ while(CR < 60000){
   IslandS <- c("Sumatra", "Kalimantan", "Papua")
   for(Island in IslandS){
 
-    df30 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_30th.Rdata"))
-    df60 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_60th.Rdata"))
-    df90 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.Rdata"))
+    df30 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_30th.rds"))
+    df60 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_60th.rds"))
+    df90 <- readRDS(paste0("./dataframes/panel_",Island,"_",PS/1000,"km_",CR/1000,"CR_90th.rds"))
     
     df60 <- dplyr::select(df60, -lon, -lat)
     df <- inner_join(df30, df60, by = c("parcel_id", "year"))
@@ -689,7 +693,7 @@ while(CR < 60000){
   # stack the three Islands together
   indo_df <- rbind(df_list[[1]], df_list[[2]], df_list[[3]])
   
-  saveRDS(indo_df, paste0("./dataframes/panel_Indonesia_",PS/1000,"km_",CR/1000,"CR.Rdata"))
+  saveRDS(indo_df, paste0("./dataframes/panel_Indonesia_",PS/1000,"km_",CR/1000,"CR.rds"))
   
   rm(indo_df, df_list)
   CR <- CR + 20000

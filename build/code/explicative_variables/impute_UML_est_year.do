@@ -102,18 +102,20 @@ save "$base_path_wd\build\output\UML_valentin_imputed_est_year.dta", replace
 *** UPDATE EST_YEAR variable in IBS_UML DATA SETS. 
 use "$base_path_wd\build\input\IBS_UML_panel.dta", clear
 
-merge m:1 trase_code using "$base_path_wd\build\output\UML_imputed_est_year.dta", nogenerate keepusing(est_year_imp) 
+merge m:1 trase_code using "$base_path_wd\build\output\UML_valentin_imputed_est_year.dta", nogenerate keepusing(est_year_imp) 
 
 order est_year_imp, after(est_year)
 sort firm_id year 
-save "$base_path_wd\build\input\IBS_UML_panel.dta", replace
+save "$base_path_wd\build\input\IBS_UML_panel_est_year.dta", replace
 
 
-
+/*
 codebook firm_id if !mi(lat)
 codebook firm_id if !mi(trase_code)
 codebook firm_id if !mi(mill_name)
+*/
 
+/*
 export excel firm_id year trase_code uml_id mill_name parent_co lat lon district_name kec_name village_name /// 
 min_year est_year est_year_imp startYear max_year active industry_code ///
 ffb_price_imp1 ffb_price_imp2 in_ton_ffb in_ton_ffb_imp1 in_ton_ffb_imp2 in_val_ffb in_val_ffb_imp1 in_val_ffb_imp2 flag_multiinput_ffb ///
@@ -125,7 +127,8 @@ pko_price_imp1 pko_price_imp2 out_ton_pko out_ton_pko_imp1 out_ton_pko_imp2 out_
 out_ton_rpo out_ton_rpo_imp1 out_ton_rpo_imp2 out_val_rpo out_val_rpo_imp1 out_val_rpo_imp2 prex_rpo prex_rpo_imp1 prex_rpo_imp2 out_rpo tag_multioutput_rpo ///
 out_ton_rpko out_ton_rpko_imp1 out_ton_rpko_imp2 out_val_rpko out_val_rpko_imp1 out_val_rpko_imp2 prex_rpko prex_rpko_imp1 prex_rpko_imp2 out_rpko ///
 EKSPOR export_pct export_pct_imp revenue_total pct_own_cent_gov_imp pct_own_loc_gov_imp pct_own_nat_priv_imp pct_own_for_imp workers_total_imp3 ///
-using "$base_path_wd\build\output\IBS_UML_panel.xlsx", firstrow(variables) replace 
+using "$base_path_wd\build\output\IBS_UML_panel_est_year.xlsx", firstrow(variables) replace 
+*/
 
 * save a cross-sectional selected version 
 keep if !mi(lat)
@@ -137,4 +140,4 @@ avg_out_ton_cpo_imp2 last_out_ton_cpo_imp2 avg_cpo_price_imp1 avg_cpo_price_imp2
 sort firm_id year 
 duplicates drop firm_id, force
 sort firm_id
-save "$base_path_wd\build\input\IBS_UML_cs.dta", replace
+save "$base_path_wd\build\input\IBS_UML_cs_est_year.dta", replace

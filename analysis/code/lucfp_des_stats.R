@@ -468,41 +468,104 @@ kable(LU_stat_des, booktabs = T, align = "r") %>%
 
 
 
+##### Make figures #####
+rasterOptions(maxmemory = 1e10, chunksize = 1e9)
 
-
-
-
-
-
-
-
-fc2000_islands <- list()
+# for these parameters
+parcel_size <- 3000
 th <- 30
-while(th < 100){
-  fc2000_islands[[th/30]] <- st_read(paste0("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_",th,"th_island_ha/FC2000_",th,"th_island_ha.shp"))
-  names(fc2000_islands[[th/30]])[names(fc2000_islands[[th/30]]) == "islnd_n"] <- "island_and_threshold"
-  fc2000_islands[[th/30]]$island_and_threshold <- paste0(fc2000_islands[[th/30]]$island_and_threshold,"_",th,"th")
+# island <- "Sumatra"
+
+
+island_sf <- st_read("island_sf")
+names(island_sf)[names(island_sf) == "islnd_n"] <- "shape_des"
+island_sf_prj <- st_transform(island_sf, crs = indonesian_crs)
+
+ibs <- read.dta13(here("build/input/IBS_UML_cs.dta"))
+ibs <- st_as_sf(ibs,	coords	=	c("lon",	"lat"), crs=4326)
+ibs <- st_geometry(ibs)
+ibs_prj <- st_transform(ibs, crs = indonesian_crs)
+ibs30 <- st_buffer(ibs_prj, dist = 30000)
+ibs30 <- st_union(ibs30)
+
+#islands <- st_union(island_sf_prj) 
+
+ibs30 <- st_intersection(x = ibs30, y = island_sf_prj)
+
+# keep only the part of this total catchment area that is on our island of interest
+#ibs30 <- st_intersection(x = ibs30, y = island_sf_prj[island_sf_prj$shape_des == island,])
+# un-project to leaflet lon lat 
+ibs30_lonlat <- st_transform(ibs30, crs = 4326)
+# (For raster we let leaflet do it) 
+
+# prepare accumulated lucfp 
+prepare_accu_lucfp <- function(island){
+  parcel_size <- 3000
+  th <- 30
+  brick_lucfp <- brick(here(paste0("build/input/outcome_variables/bricked_parcels/parcels_",island,"_",parcel_size/1000,"km_",th,"th.tif")))
   
-  th <- th + 30 
+  # remove layers of years aftr 2015
+  brick_lucfp <- raster::subset(brick_lucfp, c(1:15))
+  # Add up annual aggregated LUCFP
+  accu_lucfp <- calc(brick_lucfp, fun = sum, na.rm = TRUE)
+  # convert the sum value from number of pixels of resolution 27.7m (i.e; 767.29 square meters) to million hectare 
+  pixel_area <- (27.7^2)/(1e4) # 1e4 is the convertion factor between a square meter and ONE hectare.  
+  accu_lucfp <- calc(accu_lucfp, fun = function(x){x*pixel_area})
+  # turn 0 (which are most parcels in the raster) to NA for transparence
+  accu_lucfp <- reclassify(accu_lucfp, rcl = cbind(0,NA))
+  
+  return(accu_lucfp)
 }
+# plot(accu_lucfp)
+# ibs30 %>% st_geometry() %>% plot(add = TRUE)
+# island_sf_prj[island_sf_prj$shape_des == "Sumatra", "geometry"] %>% plot(add = T)
 
-fc2000 <- rbind(fc2000_islands[[1]],fc2000_islands[[2]],fc2000_islands[[3]])
+accu_lucfp_suma <- prepare_accu_lucfp("Sumatra")
+accu_lucfp_kali <- prepare_accu_lucfp("Kalimantan")
+accu_lucfp_papu <- prepare_accu_lucfp("Papua")
 
+# settings for lucfp legend 
+bins <- seq(from = 0, to = 900, by = 300)
+cb <- colorBin("plasma", 
+                domain = bins, 
+                bins = bins, 
+                na.color = "transparent")
+# "viridis", "magma", "inferno", or "plasma".
+# cb <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(accu_lucfp_suma),
+#                     na.color = "transparent")
 
+# this does not do anything: 
+bin_labels <- c("0-300ha", "300-600ha", "600-900ha")
+bin_labels <- paste0("<div style='display: inline-block;height: ", 
+                     size, "px;margin-top: 4px;line-height: ", 
+                     size, "px;'>", bin_labels, "</div>")
 
-fc2000_islands30 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_30th_island_ha/FC2000_30th_island_ha.shp")
-fc2000_islands60 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_60th_island_ha/FC2000_60th_island_ha.shp")
-fc2000_islands90 <- st_read("C:/Users/GUYE/Google Drive/opal/GEE_outputs/FC2000_90th_island_ha/FC2000_90th_island_ha.shp")
+# settings for catchment radius legend
+color <- "transparent"
+label <- "30km catchment <br/> radius of IBS mills"
+shape <- "circle"
+border <- "red"
+size <- 10
 
+shape <- gsub("circle", "50%", shape)
+legend_colors <- paste0(color, "; width:", size, "px; height:", size, "px; border:3px solid ", border, "; border-radius:", shape)
 
-
-
-
-
-
-
-
-
+# MAP
+ibs30_lonlat%>% 
+  leaflet() %>% 
+  addTiles()%>%
+  addProviderTiles(providers$Esri.WorldImagery, group ="ESRI") %>%
+  addPolygons(opacity = 0.5, color = "red", weight = 2, fill = FALSE) %>%
+  addRasterImage(accu_lucfp_suma, project = TRUE, colors = cb) %>% 
+  addRasterImage(accu_lucfp_kali, project = TRUE, colors = cb) %>% 
+  addRasterImage(accu_lucfp_papu, project = TRUE, colors = cb) %>% 
+  addLegend(pal = cb,  values = cb, opacity = 0.7,
+            labFormat = labelFormat(suffix = "ha"),
+            labels = bin_labels, # this lign does not do anything
+            title = "Total 2001-2015 LUCFP <br/> within 900ha parcels",
+            position = "topright") %>% 
+  addLegend(colors = legend_colors, labels = label) 
+            
 
 
 
