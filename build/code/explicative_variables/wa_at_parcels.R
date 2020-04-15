@@ -266,7 +266,7 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
         # give year specific variable names to the variables built in this function 
         names(parcels) <- names(parcels) %>% paste0(".", years[t])
         
-        saveRDS(parcels, here(paste0("build/input/temp_cs_wa_explanatory/cs_wa_explanatory_",
+        saveRDS(parcels, file.path(paste0("./explanatory_variables/temp_cs_wa_explanatory/cs_wa_explanatory_",
                                      parcel_size/1000,"km_",catchment_radius/1000,"CR_",years[t],".rds")))
     }# closes annual_w_averages
        
@@ -290,7 +290,7 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
 
   
   ### ON EN EST LA, ALLER VOIR DANS LA VERSION ORIGINALE COMMENT ON FAISAIT POUR BINDER LES RESULTATS
-  annual_parcel_paths <- list.files(path = here("build/input/temp_cs_wa_explanatory/"), 
+  annual_parcel_paths <- list.files(path = file.path("./explanatory_variables/temp_cs_wa_explanatory/"), 
                              pattern = paste0("cs_wa_explanatory_",parcel_size/1000,"km_",catchment_radius/1000,"CR_"), 
                              full.names = TRUE) 
   
@@ -327,7 +327,7 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
   
   long_parcels <- dplyr::arrange(long_parcels, parcel_id, year)
   
-  saveRDS(long_parcels, file = here(paste0("build/output/wa_panel_parcels_",parcel_size/1000,"km_",catchment_radius/1000,"CR.rds")))
+  saveRDS(long_parcels, file = file.path(paste0("./explanatory_variables/wa_panel_parcels_",parcel_size/1000,"km_",catchment_radius/1000,"CR.rds")))
 
 }
 
