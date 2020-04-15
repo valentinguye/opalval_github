@@ -33,6 +33,7 @@ label variable spread3 "spread"
 gen double spread4 = ref_int_cpo_price - dom_blwn_cpo - taxeffectiverate*ref_int_cpo_price
 label variable spread4 "spread_cpo_refpr_blwn"
 tabstat spread1 spread2 spread3 spread4, statistics( mean ) by(year)
+* all missing until 2007. 
 
 forvalues s = 1/4{
 gen double iv`s'_imp1 = prex_cpo_imp1*spread`s'
