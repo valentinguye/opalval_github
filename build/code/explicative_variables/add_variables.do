@@ -1,9 +1,13 @@
+
+
+***** MACROECONOMIC VARIABLES *****
 import excel "$base_path_wd\build\input\prices_exp.xlsx", sheet("Sheet1") firstrow clear
 drop Domesticprice FOBPrice
 save "$base_path_wd\build\input\prices_exp.dta", replace
 
-*use "C:\Users\guyv\ownCloud\opalval\build\input\IBS_1998_cleaned.dta", clear
-use "$base_path_wd\build\input\IBS_UML_panel_est_year.dta", clear
+* read IBS panel 
+use "$base_path_wd\build\input\IBS_UML_panel.dta", clear
+
 merge m:1 year using "$base_path_wd\build\input\prices_exp.dta", nogenerate 
 sort firm_id year 
 *need to change the global for all new price variables each time (and don't forget to NOT DELFATE taxeffectiverate). 
@@ -42,7 +46,7 @@ gen double iv`s'_imp2 = prex_cpo_imp2*spread`s'
 
 
 
-*** Log variables
+***** LOG VARIABLES *****
 global to_log ffb_price_imp1 ffb_price_imp2 cpo_price_imp1 cpo_price_imp2 pko_price_imp1 pko_price_imp2 ///
 out_val_cpo_imp1 out_val_cpo_imp2 out_val_pko_imp1 out_val_pko_imp2 revenue_total ///
 ref_int_cpo_price cif_rtdm_cpo dom_blwn_cpo fob_blwn_cpo spread_int_dom rho dom_blwn_pko cif_rtdm_pko ///
@@ -53,6 +57,15 @@ foreach var of varlist $to_log {
 }
 
 sort firm_id year 
+
+
+
+***** UML ESTABLISHMENT YEAR AND CONCENTRATION *****
+
+merge m:1 trase_code year using "build\output\UML_panel_valentin.dta", generate(merge_uml_panel) keepusing(est_year_imp concentration_10 concentration_30 concentration_50)
+drop if merge_uml_panel == 2
+drop merge_uml_panel
+order est_year_imp, after(est_year)
 
 save "$base_path_wd\build\output\IBS_UML_panel_final.dta", replace 
 

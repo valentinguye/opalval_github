@@ -15,7 +15,7 @@
 # Add to the sf dataframe parcel object 18 list columns (for years 1998 to 2015). Each row has one list element in each of these list columns.
 # Each of these elements is a dataframe with one record for each mill that is less than 40 km from the element's point. 
 
-# Each of the records within each of the 18 annual elements of every parcels is an IBS mill, with its attributes from IBS_mills_final
+# Each of the records within each of the 18 annual elements of every parcels is an IBS mill, with its attributes from IBS_UML_panel_final
 # + its distance to this particular parcel's centroid. 
 # + attribute specific weights based on this distance and the distance of other reachable mills that have a non missing value for this attribute.   
 # + its weighted value for each variable of interest. 
@@ -76,7 +76,7 @@ length(unique(ibs$firm_id))
 
 # keep only the variables that identify mills and those which we want to distribute over parcels. 
 ibs <- ibs[, c("firm_id", "year", "trase_code", "uml_id", "mill_name", "parent_co", "lat", "lon",
-               "min_year","est_year", "est_year_imp",  "startYear", "max_year", 
+               "min_year","est_year", "est_year_imp", "max_year", 
                "ffb_price_imp1", "ffb_price_imp2", "in_ton_ffb_imp1", "in_ton_ffb_imp2", "in_val_ffb_imp1", "in_val_ffb_imp2",
                "cpo_price_imp1","cpo_price_imp2", "out_ton_cpo_imp1", "out_ton_cpo_imp2", "out_val_cpo_imp1", "out_val_cpo_imp2",
                "prex_cpo_imp1", "prex_cpo_imp2",
@@ -84,7 +84,8 @@ ibs <- ibs[, c("firm_id", "year", "trase_code", "uml_id", "mill_name", "parent_c
                "prex_pko_imp1", "prex_pko_imp2",
                "export_pct_imp", "revenue_total", "workers_total_imp3",
                "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp", 
-               "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2")]
+               "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2", 
+               "concentration_10", "concentration_30", "concentration_50")]
 
 # we don't keep the logs because we don't want to compute means of logs, but logs of means. 
 # "ffb_price_imp1_ln", "ffb_price_imp2_ln", "cpo_price_imp1_ln", "cpo_price_imp2_ln",        
@@ -208,7 +209,8 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
                      "prex_pko_imp1", "prex_pko_imp2",
                      # "export_pct_imp", "revenue_total", "workers_total_imp3",
                      "pct_own_cent_gov_imp", "pct_own_loc_gov_imp", "pct_own_nat_priv_imp", "pct_own_for_imp",
-                     "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2")
+                     "iv2_imp1", "iv2_imp2", "iv3_imp1", "iv3_imp2", "iv4_imp1", "iv4_imp2", 
+                     "concentration_10", "concentration_30", "concentration_50")
 
 
       # make the variable specific sum of the inverse of distance over all the reachable mills that have no missing on this variable.
@@ -289,7 +291,7 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
   parallel_w_averages(detectCores() - 1)
 
   
-  ### ON EN EST LA, ALLER VOIR DANS LA VERSION ORIGINALE COMMENT ON FAISAIT POUR BINDER LES RESULTATS
+  ### Read annual cross-sections and bind them 
   annual_parcel_paths <- list.files(path = file.path("./explanatory_variables/temp_cs_wa_explanatory/"), 
                              pattern = paste0("cs_wa_explanatory_",parcel_size/1000,"km_",catchment_radius/1000,"CR_"), 
                              full.names = TRUE) 
@@ -332,16 +334,11 @@ parcel_set_w_average <- function(parcel_size, catchment_radius){
 }
 
 ##### EXECUTE FUNCTION #####
-
-
-parcel_set_w_average(parcel_size = 3000, 
-                     catchment_radius = 30000)
-
-#### n_reachable_full ####
-# BUT IT WOULD BE BETTER TO HAVE THIS COMPUTED FOR ALL KNOWN MILLS.
-# This can be done outside of the annual_w_averages function
-# Not difficult but we need to know when they appear in the UML 
-# see with Sebi how he did for that. 
+CR <- 10
+while(CR < 60){
+  parcel_set_w_average(parcel_size = 3000, catchment_radius = CR*1000)
+  CR <- CR + 20                   
+}
 
 
 

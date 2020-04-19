@@ -14,8 +14,8 @@ replace lon = 100.261 if uml_id == "PO1000004435"
 duplicates list lat lon 
 
 * add the guys that are not here but were in traseMills_capEstyear.xlsx though.  
-merge 1:1 trase_code using "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", generate(_merge_ibs) 
-
+merge 1:1 trase_code using "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", nogenerate
+* 13 mills were not in mills_estyear_clean.xlsx but are in traseMills_capEstyear_selected.dta
 
 * round coordinates
 replace lat = round(lat, 0.001) 
@@ -25,24 +25,24 @@ duplicates list lat lon
 
 save "$base_path_wd\build\input\mills_estyear_clean.dta", replace 
 
+use "$base_path_wd\build\input\mills_estyear_clean.dta", clear
 
-/*
-use "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", clear
+/* use "$base_path_wd\build\input\mill_geolocalization\traseMills_capEstyear_selected.dta", clear
 browse if trase_code == "M-01200"
 
 parent_co	mill_name	lat	lon
 PT Pelita Agung Agrindustri	PT. Pelita Agung Agro Industri	1.427	101.189
-*/
+ */
 
 
 * read most recent version of UML, that does not have est_year variable.
 use "$base_path_wd\build\input\mill_geolocalization\mills_20200129.dta", clear 
 
-* add the est_year variable 
-merge 1:1 trase_code using "$base_path_wd\build\input\mills_estyear_clean.dta", nogenerate keepusing(est_year) 
+* add the est_year variable, and the 10 mills that are in mills_estyear_clean.dta (either from mills_estyear_clean.xlsx or from traseMills_capEstyear_selected.dta)
+merge 1:1 trase_code using "$base_path_wd\build\input\mills_estyear_clean.dta", nogenerate
 
 * add the min_year variable from IBS 
-merge 1:1 trase_code using "$base_path_wd\build\input\IBS_UML_cs.dta", nogenerate keepusing(firm_id year min_year max_year)
+merge 1:1 trase_code using "$base_path_wd\build\input\IBS_UML_cs.dta", nogenerate keepusing(min_year)
 
 gen est_year_imp = est_year
 
@@ -98,7 +98,7 @@ save "$base_path_wd\build\output\UML_valentin_imputed_est_year.dta", replace
 
 
 
-
+/* 
 *** UPDATE EST_YEAR variable in IBS_UML DATA SETS. 
 use "$base_path_wd\build\input\IBS_UML_panel.dta", clear
 
@@ -106,7 +106,7 @@ merge m:1 trase_code using "$base_path_wd\build\output\UML_valentin_imputed_est_
 
 order est_year_imp, after(est_year)
 sort firm_id year 
-save "$base_path_wd\build\input\IBS_UML_panel_est_year.dta", replace
+save "$base_path_wd\build\input\IBS_UML_panel_est_year.dta", replace */
 
 
 /*
@@ -131,7 +131,7 @@ using "$base_path_wd\build\output\IBS_UML_panel_est_year.xlsx", firstrow(variabl
 */
 
 * save a cross-sectional selected version 
-keep if !mi(lat)
+/* keep if !mi(lat)
 keep firm_id year trase_code uml_id mill_name parent_co lat lon island_factor island_name district_name kec_name village_name /// 
 min_year est_year est_year_imp startYear max_year active industry_code ///
 avg_in_tot_ton_cpo_imp2 last_in_tot_ton_cpo_imp2 avg_in_ton_ffb_imp2 last_in_ton_ffb_imp2 avg_ffb_price_imp2 ///
@@ -140,4 +140,4 @@ avg_out_ton_cpo_imp2 last_out_ton_cpo_imp2 avg_cpo_price_imp1 avg_cpo_price_imp2
 sort firm_id year 
 duplicates drop firm_id, force
 sort firm_id
-save "$base_path_wd\build\input\IBS_UML_cs_est_year.dta", replace
+save "$base_path_wd\build\input\IBS_UML_cs_est_year.dta", replace */
